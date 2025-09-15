@@ -4,7 +4,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 // import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { HttpClientTransport } from "./httpClientTransport.js";
-import { HttpClientTransport } from "./httpClientTransport.js";
 import {
   CallToolRequest,
   CallToolResult,
@@ -54,7 +53,7 @@ export class DatabricksMCPClient {
         });
       }
 
-  await this.client.connect(this.transport);
+      await this.client.connect(this.transport);
       this.connected = true;
       console.log("✅ Connected to MCP server");
     } catch (error: unknown) {

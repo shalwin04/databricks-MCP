@@ -1,12 +1,13 @@
 import axios, { AxiosInstance } from "axios";
-import { ClientTransport } from "@modelcontextprotocol/sdk/client/index.js";
 
-export class HttpClientTransport implements ClientTransport {
+export class HttpClientTransport {
+  async start(): Promise<void> {
+    // No-op for HTTP transport
+    return;
+  }
   private axios: AxiosInstance;
-  private url: string;
 
   constructor(url: string) {
-    this.url = url;
     this.axios = axios.create({
       baseURL: url,
       headers: {
@@ -16,10 +17,11 @@ export class HttpClientTransport implements ClientTransport {
     });
   }
 
-  async send(data: any): Promise<any> {
+  async send(data: Record<string, unknown>): Promise<void> {
     // Send as JSON-RPC POST
-    const response = await this.axios.post("", data);
-    return response.data;
+    await this.axios.post("", data);
+    // Response is handled by MCP Client
+    return;
   }
 
   async close(): Promise<void> {
