@@ -1,0 +1,49 @@
+{
+  "name": "databricks-agent",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "bin": {
+    "databricks-agent": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "dev:run": "tsx src/index.ts",
+    "fixed": "tsx src/fixed-index.ts",
+    "simple": "tsx src/simple-index.ts",
+    "example": "tsx src/example.ts",
+    "clean": "rm -rf dist",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:connection": "tsx src/test-connection.ts",
+    "test:improved": "tsx src/test-improved-client.ts"
+  },
+  "keywords": [
+    "databricks",
+    "agent",
+    "mcp",
+    "langchain",
+    "langgraph",
+    "ai"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "AI agent for Databricks operations using LangChain, LangGraph and Model Context Protocol",
+  "dependencies": {
+    "@langchain/langgraph": "^0.4.9",
+    "@langchain/openai": "^0.6.11",
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "dotenv": "^17.2.2",
+    "eventsource": "^4.0.0",
+    "langchain": "^0.3.33",
+    "node-fetch": "^2.7.0",
+    "openai": "^5.20.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "@types/node-fetch": "^2.6.13",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
