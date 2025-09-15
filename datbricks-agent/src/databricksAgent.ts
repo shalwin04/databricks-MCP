@@ -1,4 +1,4 @@
-import DatabricksMCPClient from './client.js';
+import DatabricksMCPClient from "./client.js";
 
 export class DatabricksAgent {
   private mcp: DatabricksMCPClient;
@@ -17,41 +17,41 @@ export class DatabricksAgent {
 
   async handleRequest(request: string, params: Record<string, any> = {}) {
     switch (request) {
-      case 'train':
+      case "train":
         return await this.mcp.trainAndRegisterModel(
-          params.modelType || 'shingrix-po',
-          params.jobName || 'DDT-Train-and-Register-Model',
+          params.modelType || "shingrix-po",
+          params.jobName || "DDT-Train-and-Register-Model",
           params.additionalParams || {}
         );
-      case 'runNotebook':
+      case "runNotebook":
         return await this.mcp.runNotebook(
           params.notebookPath,
           params.baseParams || {},
-          params.jobName || 'AgentJob'
+          params.jobName || "AgentJob"
         );
-      case 'jobStatus':
+      case "jobStatus":
         return await this.mcp.checkJobStatus(params.jobId, params.runId);
-      case 'listTools':
+      case "listTools":
         return await this.mcp.listTools();
-      case 'getModelMetadata':
+      case "getModelMetadata":
         return await this.mcp.getModelMetadata(params.experimentId);
-      case 'getRegisteredModelInfo':
+      case "getRegisteredModelInfo":
         return await this.mcp.getRegisteredModelInfo(
           params.modelName,
           params.ucCatalog,
           params.ucSchema
         );
-      case 'getLatestExperimentRun':
+      case "getLatestExperimentRun":
         return await this.mcp.getLatestExperimentRun(params.experimentId);
-      case 'getJobDetails':
+      case "getJobDetails":
         return await this.mcp.getJobDetails(params.jobId);
-      case 'getRunningJobs':
+      case "getRunningJobs":
         return await this.mcp.getRunningJobRuns();
-      case 'convertEpochToDatetime':
+      case "convertEpochToDatetime":
         return await this.mcp.convertEpochToDatetime(params.epochTimestamp);
-      case 'getTrainExperimentInfo':
+      case "getTrainExperimentInfo":
         return await this.mcp.getTrainExperimentInfo(params.modelType);
-      case 'triggerAzureDevOpsPipeline':
+      case "triggerAzureDevOpsPipeline":
         return await this.mcp.triggerAzureDevOpsPipeline(
           params.modelType,
           params.branch,
@@ -64,14 +64,19 @@ export class DatabricksAgent {
   }
 }
 
-// Example usage
-if (require.main === module) {
+// Example usage (ESM compatible)
+if (
+  typeof import.meta !== "undefined" &&
+  import.meta.url === `file://${process.argv[1]}`
+) {
   (async () => {
     const agent = new DatabricksAgent(process.argv[2]);
     await agent.connect();
     // Example: train model
-    const result = await agent.handleRequest('train', { modelType: 'shingrix-po' });
-    console.log('Result:', result);
+    const result = await agent.handleRequest("train", {
+      modelType: "shingrix-po",
+    });
+    console.log("Result:", result);
     await agent.disconnect();
   })();
 }

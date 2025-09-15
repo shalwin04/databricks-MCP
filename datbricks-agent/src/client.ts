@@ -2,14 +2,16 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+// import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { HttpClientTransport } from "./httpClientTransport.js";
+import { HttpClientTransport } from "./httpClientTransport.js";
 import {
   CallToolRequest,
   CallToolResult,
-  ListToolsRequest,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import readline from 'readline';
+import readline from "readline";
+import { z } from "zod";
 
 /**
  * MCP Client for Databricks Server
@@ -17,7 +19,7 @@ import readline from 'readline';
  */
 export class DatabricksMCPClient {
   private client: Client;
-  private transport: StdioClientTransport | SSEClientTransport | null = null;
+  private transport: StdioClientTransport | HttpClientTransport | null = null;
   private connected = false;
 
   constructor(private serverUrl?: string) {
@@ -28,8 +30,8 @@ export class DatabricksMCPClient {
       },
       {
         capabilities: {
-          tools: {}
-        }
+          tools: {},
+        },
       }
     );
   }
@@ -40,25 +42,29 @@ export class DatabricksMCPClient {
   async connect(): Promise<void> {
     try {
       if (this.serverUrl) {
-        // HTTP/SSE transport for remote server
+        // HTTP transport for remote server
         console.log(`Connecting to MCP server at ${this.serverUrl}...`);
-        this.transport = new SSEClientTransport(new URL(this.serverUrl));
+        this.transport = new HttpClientTransport(this.serverUrl);
       } else {
         // Stdio transport for local server
-        console.log('Connecting to local MCP server via stdio...');
+        console.log("Connecting to local MCP server via stdio...");
         this.transport = new StdioClientTransport({
           command: "node",
           args: ["databricks-mcp-server.js"],
         });
       }
 
-      await this.client.connect(this.transport);
+  await this.client.connect(this.transport);
       this.connected = true;
-      console.log('✅ Connected to MCP server');
-      
-    } catch (error: any) {
-      console.error('❌ Failed to connect to MCP server:', error.message);
-      throw error;
+      console.log("✅ Connected to MCP server");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("❌ Failed to connect to MCP server:", error.message);
+        throw error;
+      } else {
+        console.error("❌ Failed to connect to MCP server:", error);
+        throw error;
+      }
     }
   }
 
@@ -67,29 +73,54 @@ export class DatabricksMCPClient {
    */
   async listTools(): Promise<Tool[]> {
     if (!this.connected) {
-      throw new Error('Client not connected. Call connect() first.');
+      throw new Error("Client not connected. Call connect() first.");
     }
 
     try {
       const request = {
         method: "tools/list",
-        params: {}
+        params: {},
       };
-      // Pass Tool as the result schema (or ListToolsResult if available)
-      const response = await this.client.request(request, Tool);
-      return response.tools;
-    } catch (error: any) {
-      console.error('Failed to list tools:', error.message);
-      throw error;
+      // The MCP SDK may expect a result schema type, but Tool is a type, not a value. Remove as argument.
+      const response = await this.client.request(
+        request,
+        z.object({
+          tools: z.array(
+            z.object({
+              name: z.string(),
+              description: z.string().optional(),
+              inputSchema: z
+                .object({
+                  properties: z.record(z.any()).optional(),
+                  required: z.array(z.string()).optional(),
+                })
+                .optional(),
+            })
+          ),
+        })
+      );
+      // The response should have a 'tools' property
+      return (response as { tools: Tool[] }).tools;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Failed to list tools:", error.message);
+        throw error;
+      } else {
+        console.error("Failed to list tools:", error);
+        throw error;
+      }
     }
   }
 
   /**
    * Execute a tool with parameters
    */
-  async callTool(name: string, args: Record<string, any> = {}): Promise<CallToolResult> {
+  async callTool(
+    name: string,
+    args: Record<string, unknown> = {}
+  ): Promise<CallToolResult> {
     if (!this.connected) {
-      throw new Error('Client not connected. Call connect() first.');
+      throw new Error("Client not connected. Call connect() first.");
     }
 
     try {
@@ -97,8 +128,8 @@ export class DatabricksMCPClient {
         method: "tools/call",
         params: {
           name,
-          arguments: args
-        }
+          arguments: args,
+        },
       };
 
       console.log(`Calling tool: ${name}`);
@@ -106,11 +137,20 @@ export class DatabricksMCPClient {
         console.log(`Parameters:`, JSON.stringify(args, null, 2));
       }
 
-      const result = await this.client.request(request, CallToolResult);
-      return result;
-    } catch (error: any) {
-      console.error(`Failed to call tool ${name}:`, error.message);
-      throw error;
+      const result = await this.client.request(request, z.object({}));
+      // Ensure result has 'content' property
+      if (!("content" in result)) {
+        (result as CallToolResult).content = [];
+      }
+      return result as CallToolResult;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error(`Failed to call tool ${name}:`, error.message);
+        throw error;
+      } else {
+        console.error(`Failed to call tool ${name}:`, error);
+        throw error;
+      }
     }
   }
 
@@ -118,86 +158,98 @@ export class DatabricksMCPClient {
    * Convenience methods for each Databricks tool
    */
 
-  async runNotebook(notebookPath: string, baseParams: Record<string, any> = {}, jobName: string = 'AgentJob') {
-    return this.callTool('run_databricks_notebook', {
+  async runNotebook(
+    notebookPath: string,
+    baseParams: Record<string, unknown> = {},
+    jobName: string = "AgentJob"
+  ): Promise<CallToolResult> {
+    return this.callTool("run_databricks_notebook", {
       notebook_path: notebookPath,
       base_params: baseParams,
-      job_name: jobName
+      job_name: jobName,
     });
   }
 
   async trainAndRegisterModel(
-    modelType: 'shingrix-po' | 'shingrix-ppo' | 'digital-twin' = 'shingrix-po',
-    jobName: string = 'DDT-Train-and-Register-Model',
-    additionalParams: Record<string, any> = {}
-  ) {
-    return this.callTool('train_and_register_model', {
+    modelType: "shingrix-po" | "shingrix-ppo" | "digital-twin" = "shingrix-po",
+    jobName: string = "DDT-Train-and-Register-Model",
+    additionalParams: Record<string, unknown> = {}
+  ): Promise<CallToolResult> {
+    return this.callTool("train_and_register_model", {
       model_type: modelType,
       job_name: jobName,
-      additional_params: additionalParams
+      additional_params: additionalParams,
     });
   }
 
-  async getLatestExperimentRun(experimentId: string) {
-    return this.callTool('get_latest_experiment_run', {
-      experiment_id: experimentId
+  async getLatestExperimentRun(experimentId: string): Promise<CallToolResult> {
+    return this.callTool("get_latest_experiment_run", {
+      experiment_id: experimentId,
     });
   }
 
-  async getModelMetadata(experimentId: string) {
-    return this.callTool('get_model_metadata', {
-      experiment_id: experimentId
+  async getModelMetadata(experimentId: string): Promise<CallToolResult> {
+    return this.callTool("get_model_metadata", {
+      experiment_id: experimentId,
     });
   }
 
-  async getRegisteredModelInfo(modelName: string, ucCatalog: string, ucSchema: string) {
-    return this.callTool('get_registered_model_info', {
+  async getRegisteredModelInfo(
+    modelName: string,
+    ucCatalog: string,
+    ucSchema: string
+  ): Promise<CallToolResult> {
+    return this.callTool("get_registered_model_info", {
       model_name: modelName,
       uc_catalog: ucCatalog,
-      uc_schema: ucSchema
+      uc_schema: ucSchema,
     });
   }
 
-  async checkJobStatus(jobId: string, runId: string) {
-    return this.callTool('check_databricks_job_status', {
+  async checkJobStatus(jobId: string, runId: string): Promise<CallToolResult> {
+    return this.callTool("check_databricks_job_status", {
       job_id: jobId,
-      run_id: runId
+      run_id: runId,
     });
   }
 
-  async getRunningJobRuns() {
-    return this.callTool('get_latest_running_job_runs');
+  async getRunningJobRuns(): Promise<CallToolResult> {
+    return this.callTool("get_latest_running_job_runs");
   }
 
-  async getJobDetails(jobId: string) {
-    return this.callTool('get_job_details', {
-      job_id: jobId
+  async getJobDetails(jobId: string): Promise<CallToolResult> {
+    return this.callTool("get_job_details", {
+      job_id: jobId,
     });
   }
 
-  async convertEpochToDatetime(epochTimestamp: string) {
-    return this.callTool('convert_epoch_to_datetime', {
-      epoch_timestamp: epochTimestamp
+  async convertEpochToDatetime(
+    epochTimestamp: string
+  ): Promise<CallToolResult> {
+    return this.callTool("convert_epoch_to_datetime", {
+      epoch_timestamp: epochTimestamp,
     });
   }
 
-  async getTrainExperimentInfo(modelType: 'shingrix-po' | 'shingrix-ppo' | 'digital-twin') {
-    return this.callTool('get_train_experiment_info', {
-      model_type: modelType
+  async getTrainExperimentInfo(
+    modelType: "shingrix-po" | "shingrix-ppo" | "digital-twin"
+  ): Promise<CallToolResult> {
+    return this.callTool("get_train_experiment_info", {
+      model_type: modelType,
     });
   }
 
   async triggerAzureDevOpsPipeline(
     modelType: string,
-    branch: string = 'dev',
-    platform: string = 'databricks',
-    environment: string = 'dev'
-  ) {
-    return this.callTool('trigger_azure_devops_pipeline', {
+    branch: string = "dev",
+    platform: string = "databricks",
+    environment: string = "dev"
+  ): Promise<CallToolResult> {
+    return this.callTool("trigger_azure_devops_pipeline", {
       model_type: modelType,
       branch,
       platform,
-      environment
+      environment,
     });
   }
 
@@ -209,9 +261,13 @@ export class DatabricksMCPClient {
       try {
         await this.client.close();
         this.connected = false;
-        console.log('✅ Disconnected from MCP server');
-      } catch (error: any) {
-        console.error('Error disconnecting:', error.message);
+        console.log("✅ Disconnected from MCP server");
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          console.error("Error disconnecting:", error.message);
+        } else {
+          console.error("Error disconnecting:", error);
+        }
       }
     }
   }
@@ -241,15 +297,15 @@ class DatabricksMCPCLI {
   }
 
   async start(): Promise<void> {
-    console.log('🚀 Databricks MCP Client');
-    console.log('========================');
+    console.log("🚀 Databricks MCP Client");
+    console.log("========================");
 
     try {
       // Connect to server
       await this.client.connect();
-      
+
       // Load available tools
-      console.log('Loading available tools...');
+      console.log("Loading available tools...");
       this.tools = await this.client.listTools();
       console.log(`✅ Loaded ${this.tools.length} tools`);
 
@@ -258,60 +314,67 @@ class DatabricksMCPCLI {
 
       // Start interactive session
       await this.interactiveSession();
-
-    } catch (error: any) {
-      console.error('❌ Failed to start:', error.message);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("❌ Failed to start:", error.message);
+      } else {
+        console.error("❌ Failed to start:", error);
+      }
       process.exit(1);
     }
   }
 
   private showTools(): void {
-    console.log('\n📋 Available tools:');
+    console.log("\n📋 Available tools:");
     this.tools.forEach((tool, index) => {
       console.log(`  ${index + 1}. ${tool.name}`);
       console.log(`     ${tool.description}`);
       if (tool.inputSchema?.properties) {
         const params = Object.keys(tool.inputSchema.properties);
-        console.log(`     Parameters: ${params.join(', ')}`);
+        console.log(`     Parameters: ${params.join(", ")}`);
       }
-      console.log('');
+      console.log("");
     });
   }
 
   private async interactiveSession(): Promise<void> {
-    console.log('🎮 Interactive session started');
+    console.log("🎮 Interactive session started");
     console.log('Type a command number, tool name, or "help" for assistance');
     console.log('Type "quit" to exit\n');
 
+    // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
-        const input = await this.promptUser('> ');
+        const input = await this.promptUser("> ");
         const trimmed = input.trim();
 
-        if (trimmed === 'quit' || trimmed === 'exit') {
+        if (trimmed === "quit" || trimmed === "exit") {
           break;
         }
 
-        if (trimmed === 'help') {
+        if (trimmed === "help") {
           this.showHelp();
           continue;
         }
 
-        if (trimmed === 'tools' || trimmed === 'list') {
+        if (trimmed === "tools" || trimmed === "list") {
           this.showTools();
           continue;
         }
 
         await this.executeCommand(trimmed);
-
-      } catch (error: any) {
-        console.error('❌ Error:', error.message);
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          console.error("❌ Error:", error.message);
+        } else {
+          console.error("❌ Error:", error);
+        }
       }
     }
 
     await this.client.disconnect();
     this.rl.close();
-    console.log('👋 Goodbye!');
+    console.log("👋 Goodbye!");
   }
 
   private async executeCommand(command: string): Promise<void> {
@@ -324,7 +387,7 @@ class DatabricksMCPCLI {
     }
 
     // Check if it's a tool name
-    const tool = this.tools.find(t => t.name === command);
+    const tool = this.tools.find((t) => t.name === command);
     if (tool) {
       await this.executeTool(tool);
       return;
@@ -332,13 +395,13 @@ class DatabricksMCPCLI {
 
     // Handle preset commands
     switch (command) {
-      case 'quick-train':
+      case "quick-train":
         await this.quickTrain();
         break;
-      case 'status':
+      case "status":
         await this.quickStatus();
         break;
-      case 'running':
+      case "running":
         await this.showRunningJobs();
         break;
       default:
@@ -349,24 +412,24 @@ class DatabricksMCPCLI {
 
   private async executeTool(tool: Tool): Promise<void> {
     console.log(`\n🔧 Executing: ${tool.name}`);
-    
-    const params: Record<string, any> = {};
-    
+
+    const params: Record<string, unknown> = {};
+
     // Get parameters if tool requires them
     if (tool.inputSchema?.properties) {
       const required = tool.inputSchema.required || [];
-      
-      for (const [paramName, paramSchema] of Object.entries(tool.inputSchema.properties)) {
+
+      for (const paramName of Object.keys(tool.inputSchema.properties)) {
         const isRequired = required.includes(paramName);
-        const prompt = isRequired ? 
-          `${paramName} (required): ` : 
-          `${paramName} (optional, press Enter to skip): `;
-        
+        const prompt = isRequired
+          ? `${paramName} (required): `
+          : `${paramName} (optional, press Enter to skip): `;
+
         const value = await this.promptUser(prompt);
-        
+
         if (value.trim() || isRequired) {
           // Try to parse as JSON if it looks like an object/array
-          if (value.trim().startsWith('{') || value.trim().startsWith('[')) {
+          if (value.trim().startsWith("{") || value.trim().startsWith("[")) {
             try {
               params[paramName] = JSON.parse(value);
             } catch {
@@ -381,15 +444,18 @@ class DatabricksMCPCLI {
 
     try {
       const result = await this.client.callTool(tool.name, params);
-      console.log('✅ Result:');
-      
+      console.log("✅ Result:");
+
       // Pretty print the result
       if (result.content) {
-        result.content.forEach(content => {
-          if (content.type === 'text') {
+        result.content.forEach((content) => {
+          if (content.type === "text") {
             // Try to parse as JSON for better formatting
             try {
-              const parsed = JSON.parse(content.text);
+              const parsed =
+                typeof content.text === "string"
+                  ? JSON.parse(content.text)
+                  : content.text;
               console.log(JSON.stringify(parsed, null, 2));
             } catch {
               console.log(content.text);
@@ -399,59 +465,78 @@ class DatabricksMCPCLI {
       } else {
         console.log(JSON.stringify(result, null, 2));
       }
-      
-    } catch (error: any) {
-      console.error('❌ Tool execution failed:', error.message);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("❌ Tool execution failed:", error.message);
+      } else {
+        console.error("❌ Tool execution failed:", error);
+      }
     }
 
-    console.log(''); // Add spacing
+    console.log(""); // Add spacing
   }
 
   private async quickTrain(): Promise<void> {
-    console.log('🏃 Quick training - shingrix-po model');
+    console.log("🏃 Quick training - shingrix-po model");
     try {
-      const result = await this.client.trainAndRegisterModel('shingrix-po');
-      console.log('✅ Training started:');
+      const result = await this.client.trainAndRegisterModel("shingrix-po");
+      console.log("✅ Training started:");
       if (result.content && result.content[0]) {
         console.log(result.content[0].text);
       }
-    } catch (error: any) {
-      console.error('❌ Training failed:', error.message);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("❌ Training failed:", error.message);
+      } else {
+        console.error("❌ Training failed:", error);
+      }
     }
   }
 
   private async quickStatus(): Promise<void> {
-    const jobId = await this.promptUser('Job ID: ');
-    const runId = await this.promptUser('Run ID: ');
-    
+    const jobId = await this.promptUser("Job ID: ");
+    const runId = await this.promptUser("Run ID: ");
+
     if (jobId && runId) {
       try {
         const result = await this.client.checkJobStatus(jobId, runId);
-        console.log('✅ Status:');
+        console.log("✅ Status:");
         if (result.content && result.content[0]) {
           console.log(result.content[0].text);
         }
-      } catch (error: any) {
-        console.error('❌ Status check failed:', error.message);
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          console.error("❌ Status check failed:", error.message);
+        } else {
+          console.error("❌ Status check failed:", error);
+        }
       }
     }
   }
 
   private async showRunningJobs(): Promise<void> {
-    console.log('🏃 Getting running jobs...');
+    console.log("🏃 Getting running jobs...");
     try {
       const result = await this.client.getRunningJobRuns();
-      console.log('✅ Running jobs:');
+      console.log("✅ Running jobs:");
       if (result.content && result.content[0]) {
         try {
-          const parsed = JSON.parse(result.content[0].text);
+          const text =
+            typeof result.content[0].text === "string"
+              ? result.content[0].text
+              : String(result.content[0].text);
+          const parsed = JSON.parse(text);
           console.log(JSON.stringify(parsed, null, 2));
         } catch {
           console.log(result.content[0].text);
         }
       }
-    } catch (error: any) {
-      console.error('❌ Failed to get running jobs:', error.message);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("❌ Failed to get running jobs:", error.message);
+      } else {
+        console.error("❌ Failed to get running jobs:", error);
+      }
     }
   }
 
@@ -484,14 +569,17 @@ class DatabricksMCPCLI {
 // Export for library usage
 export default DatabricksMCPClient;
 
-// CLI when run directly
-if (require.main === module) {
+// CLI when run directly (ESM compatible)
+if (
+  typeof import.meta !== "undefined" &&
+  import.meta.url === `file://${process.argv[1]}`
+) {
   const serverUrl = process.argv[2];
   const cli = new DatabricksMCPCLI(serverUrl);
-  
+
   // Graceful shutdown
-  process.on('SIGINT', async () => {
-    console.log('\n🛑 Shutting down...');
+  process.on("SIGINT", async () => {
+    console.log("\n🛑 Shutting down...");
     process.exit(0);
   });
 
