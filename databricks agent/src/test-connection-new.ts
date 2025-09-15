@@ -68,7 +68,20 @@ async function testConnection() {
         try {
           console.log(`\n📝 Testing ${test.name}...`);
           const result = await test.fn();
-          console.log(`✅ ${test.name} successful:`, result.content[0].text.slice(0, 150) + (result.content[0].text.length > 150 ? '...' : ''));
+          if (
+            result &&
+            Array.isArray(result.content) &&
+            result.content[0] &&
+            typeof result.content[0].text === 'string'
+          ) {
+            const text = result.content[0].text;
+            console.log(
+              `✅ ${test.name} successful:`,
+              text.slice(0, 150) + (text.length > 150 ? '...' : '')
+            );
+          } else {
+            console.log(`✅ ${test.name} successful:`, result);
+          }
         } catch (error) {
           console.error(`❌ ${test.name} failed:`, error);
         }
