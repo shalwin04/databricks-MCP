@@ -1,18 +1,14 @@
 #!/usr/bin/env node
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import {
-  CallToolRequestSchema,
-  ErrorCode,
-  ListToolsRequestSchema,
-  McpError,
-} from "@modelcontextprotocol/sdk/types.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import axios from "axios";
 import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
 
 // Load environment variables
 dotenv.config();
@@ -298,7 +294,6 @@ class DatabricksNotebookRunner {
 }
 
 async function checkForExperiment(experimentName: string): Promise<any> {
-  const runner = new DatabricksNotebookRunner();
   const client = new DatabricksClient();
 
   if (!experimentName) {
@@ -329,791 +324,692 @@ async function checkForExperiment(experimentName: string): Promise<any> {
   }
 }
 
-const server = new Server(
-  {
+// Create MCP Server and register all tools
+function createMcpServer(): McpServer {
+  const server = new McpServer({
     name: "databricks-mcp-server",
-    version: "0.1.0", // Keep this consistent with the client
-  },
-  {
-    capabilities: {
-      tools: {},
+    version: "1.0.0",
+  });
+
+  // Register all tools using the new registerTool method
+
+  // 1. Run Databricks Notebook
+  server.registerTool(
+    "run_databricks_notebook",
+    {
+      title: "Run Databricks Notebook",
+      description: "Runs a Databricks notebook on a running cluster",
+      inputSchema: {
+        notebook_path: z.string().describe("Path to the notebook"),
+        base_params: z
+          .record(z.any())
+          .optional()
+          .describe("Parameters for the notebook"),
+        job_name: z
+          .string()
+          .optional()
+          .default("AgentJob")
+          .describe("Name for the job"),
+      },
     },
-  }
-);
+    async ({ notebook_path, base_params = {}, job_name = "AgentJob" }) => {
+      const runner = new DatabricksNotebookRunner();
+      const { jobId, runId } = await runner.createAndRunNotebook(
+        notebook_path,
+        base_params,
+        job_name
+      );
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Databricks Job ${jobId} has been triggered.`,
+          },
+        ],
+      };
+    }
+  );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "run_databricks_notebook",
-        description: "Runs a Databricks notebook on a running cluster",
-        inputSchema: {
-          type: "object",
-          properties: {
-            notebook_path: {
-              type: "string",
-              description: "Path to the notebook",
-            },
-            base_params: {
-              type: "object",
-              description: "Parameters for the notebook",
-            },
-            job_name: {
-              type: "string",
-              description: "Name for the job",
-              default: "AgentJob",
-            },
-          },
-          required: ["notebook_path"],
-        },
+  // 2. Train and Register Model
+  server.registerTool(
+    "train_and_register_model",
+    {
+      title: "Train and Register Model",
+      description: "Train, log and register the model on Databricks",
+      inputSchema: {
+        job_name: z
+          .string()
+          .optional()
+          .default("DDT-Train-and-Register-Model")
+          .describe("Name of the job"),
+        additional_params: z
+          .record(z.any())
+          .optional()
+          .describe("Additional parameters for training"),
+        model_type: z
+          .enum(["shingrix-po", "shingrix-ppo", "digital-twin"])
+          .optional()
+          .default("shingrix-po")
+          .describe("Type of model"),
       },
-      {
-        name: "train_and_register_model",
-        description: "Train, log and register the model on Databricks",
-        inputSchema: {
-          type: "object",
-          properties: {
-            job_name: {
-              type: "string",
-              description: "Name of the job",
-              default: "DDT-Train-and-Register-Model",
-            },
-            additional_params: {
-              type: "object",
-              description: "Additional parameters for training",
-            },
-            model_type: {
-              type: "string",
-              description: "Type of model",
-              enum: ["shingrix-po", "shingrix-ppo", "digital-twin"],
-              default: "shingrix-po",
-            },
-          },
-          required: [],
-        },
-      },
-      {
-        name: "get_latest_experiment_run",
-        description: "Fetches the latest run from a Databricks ML experiment",
-        inputSchema: {
-          type: "object",
-          properties: {
-            experiment_id: { type: "string", description: "ML experiment ID" },
-          },
-          required: ["experiment_id"],
-        },
-      },
-      {
-        name: "get_model_metadata",
-        description: "Fetches model metadata from a Databricks ML experiment",
-        inputSchema: {
-          type: "object",
-          properties: {
-            experiment_id: { type: "string", description: "ML experiment ID" },
-          },
-          required: ["experiment_id"],
-        },
-      },
-      {
-        name: "get_registered_model_info",
-        description: "Fetches registered model info from Unity Catalog",
-        inputSchema: {
-          type: "object",
-          properties: {
-            model_name: { type: "string", description: "Name of the model" },
-            uc_catalog: {
-              type: "string",
-              description: "Unity Catalog catalog name",
-            },
-            uc_schema: {
-              type: "string",
-              description: "Unity Catalog schema name",
-            },
-          },
-          required: ["model_name", "uc_catalog", "uc_schema"],
-        },
-      },
-      {
-        name: "check_databricks_job_status",
-        description: "Checks the status of a Databricks job",
-        inputSchema: {
-          type: "object",
-          properties: {
-            job_id: { type: "string", description: "Job ID" },
-            run_id: { type: "string", description: "Run ID" },
-          },
-          required: ["job_id", "run_id"],
-        },
-      },
-      {
-        name: "get_latest_running_job_runs",
-        description: "Fetches all running Databricks job runs",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: "get_job_details",
-        description: "Fetches details for a specific Databricks job",
-        inputSchema: {
-          type: "object",
-          properties: {
-            job_id: { type: "string", description: "Job ID" },
-          },
-          required: ["job_id"],
-        },
-      },
-      {
-        name: "convert_epoch_to_datetime",
-        description: "Converts an epoch timestamp to readable date and time",
-        inputSchema: {
-          type: "object",
-          properties: {
-            epoch_timestamp: { type: "string", description: "Epoch timestamp" },
-          },
-          required: ["epoch_timestamp"],
-        },
-      },
-      {
-        name: "get_train_experiment_info",
-        description:
-          "Provides information about training parameters for a model type",
-        inputSchema: {
-          type: "object",
-          properties: {
-            model_type: {
-              type: "string",
-              description: "Type of model",
-              enum: ["shingrix-po", "shingrix-ppo", "digital-twin"],
-            },
-          },
-          required: ["model_type"],
-        },
-      },
-      {
-        name: "trigger_azure_devops_pipeline",
-        description: "Triggers an Azure DevOps pipeline for model deployment",
-        inputSchema: {
-          type: "object",
-          properties: {
-            model_type: { type: "string", description: "Type of model" },
-            branch: {
-              type: "string",
-              description: "Git branch",
-              default: "dev",
-            },
-            platform: {
-              type: "string",
-              description: "Deployment platform",
-              default: "databricks",
-            },
-            environment: {
-              type: "string",
-              description: "Deployment environment",
-              default: "dev",
-            },
-          },
-          required: ["model_type"],
-        },
-      },
-    ],
-  };
-});
+    },
+    async ({
+      job_name = "DDT-Train-and-Register-Model",
+      additional_params = {},
+      model_type = "shingrix-po",
+    }) => {
+      const notebookPath =
+        "/Workspace/Shared/D3-DDT-Train_R_models/Train_R_Model_Cloned";
+      let baseParams = MODEL_CONFIG[model_type];
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  try {
-    switch (name) {
-      case "run_databricks_notebook": {
-        const {
-          notebook_path,
-          base_params = {},
-          job_name = "AgentJob",
-        } = args as any;
-        const runner = new DatabricksNotebookRunner();
-        const { jobId, runId } = await runner.createAndRunNotebook(
-          notebook_path,
-          base_params,
-          job_name
-        );
+      if (!baseParams) {
         return {
           content: [
             {
               type: "text",
-              text: `Databricks Job ${jobId} has been triggered.`,
+              text: `Provided model is not supported. Supported Models are: ${Object.keys(
+                MODEL_CONFIG
+              ).join(", ")}`,
             },
           ],
         };
       }
 
-      case "train_and_register_model": {
-        const {
-          job_name = "DDT-Train-and-Register-Model",
-          additional_params = {},
-          model_type = "shingrix-po",
-        } = args as any;
-
-        const notebookPath =
-          "/Workspace/Shared/D3-DDT-Train_R_models/Train_R_Model_Cloned";
-        let baseParams = MODEL_CONFIG[model_type];
-
-        if (!baseParams) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Provided model is not supported. Supported Models are: ${Object.keys(
-                  MODEL_CONFIG
-                ).join(", ")}`,
-              },
-            ],
-          };
-        }
-
-        // Handle experiment name
-        const newExperimentName = additional_params.experiment_name;
-        if (newExperimentName) {
-          const experimentResult = await checkForExperiment(newExperimentName);
-          if (!experimentResult.error) {
-            if (
-              experimentResult.experiment_name !== baseParams.experiment_name
-            ) {
-              baseParams.experiment_id = experimentResult.experiment_id;
-              baseParams.experiment_name = experimentResult.experiment_name;
-            }
+      // Handle experiment name
+      const newExperimentName = additional_params.experiment_name;
+      if (newExperimentName) {
+        const experimentResult = await checkForExperiment(newExperimentName);
+        if (!experimentResult.error) {
+          if (experimentResult.experiment_name !== baseParams.experiment_name) {
+            baseParams.experiment_id = experimentResult.experiment_id;
+            baseParams.experiment_name = experimentResult.experiment_name;
           }
         }
-
-        if (additional_params) {
-          baseParams = { ...baseParams, ...additional_params };
-        }
-
-        const runner = new DatabricksNotebookRunner();
-        const { jobId, runId } = await runner.createAndRunNotebook(
-          notebookPath,
-          baseParams,
-          job_name
-        );
-
-        const response = {
-          message: `Shingrix model training job has been triggered with job: ${jobId}.`,
-          job_id: jobId,
-          run_id: runId,
-          experiment_id: baseParams.experiment_id,
-          model_name: baseParams.model_name,
-          uc_catalog: baseParams.uc_catalog,
-          uc_schema: baseParams.uc_schema,
-        };
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-        };
       }
 
-      case "get_latest_experiment_run": {
-        const { experiment_id } = args as any;
-        const client = new DatabricksClient();
-        const runs = await client.searchRuns(
-          [experiment_id],
-          ["start_time DESC"],
-          1
-        );
-
-        if (runs.runs && runs.runs.length > 0) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(runs.runs[0], null, 2),
-              },
-            ],
-          };
-        } else {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "No runs found for this experiment.",
-              },
-            ],
-          };
-        }
+      if (additional_params) {
+        baseParams = { ...baseParams, ...additional_params };
       }
 
-      case "get_model_metadata": {
-        const { experiment_id } = args as any;
-        const client = new DatabricksClient();
-        const experiment = await client.getExperiment(experiment_id);
+      const runner = new DatabricksNotebookRunner();
+      const { jobId, runId } = await runner.createAndRunNotebook(
+        notebookPath,
+        baseParams,
+        job_name
+      );
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(experiment, null, 2),
-            },
-          ],
-        };
-      }
+      const response = {
+        message: `Shingrix model training job has been triggered with job: ${jobId}.`,
+        job_id: jobId,
+        run_id: runId,
+        experiment_id: baseParams.experiment_id,
+        model_name: baseParams.model_name,
+        uc_catalog: baseParams.uc_catalog,
+        uc_schema: baseParams.uc_schema,
+      };
 
-      case "get_registered_model_info": {
-        const { model_name, uc_catalog, uc_schema } = args as any;
-        const client = new DatabricksClient();
-        const fullModelName = `${uc_catalog}.${uc_schema}.${model_name}`;
-        const modelInfo = await client.getRegisteredModel(fullModelName);
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(modelInfo, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "check_databricks_job_status": {
-        const { job_id, run_id } = args as any;
-        const client = new DatabricksClient();
-        const resp = await client.getRun(parseInt(run_id));
-        const state = resp.state?.life_cycle_state;
-
-        let resultMessage = `Job ${job_id} (Run ${run_id}) is currently in state: ${state}.`;
-        if (resp.state?.result_state) {
-          resultMessage += ` Result: ${resp.state.result_state}.`;
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: resultMessage,
-            },
-          ],
-        };
-      }
-
-      case "get_latest_running_job_runs": {
-        const client = new DatabricksClient();
-        const runs = await client.listRuns(true);
-
-        if (runs.runs && runs.runs.length > 0) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(runs.runs, null, 2),
-              },
-            ],
-          };
-        } else {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "No running job runs found.",
-              },
-            ],
-          };
-        }
-      }
-
-      case "get_job_details": {
-        const { job_id } = args as any;
-        const client = new DatabricksClient();
-        const job = await client.getJob(parseInt(job_id));
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(job, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "convert_epoch_to_datetime": {
-        const { epoch_timestamp } = args as any;
-        const timestamp = parseInt(epoch_timestamp);
-        const dt = new Date(timestamp * 1000).toLocaleString();
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Epoch ${epoch_timestamp} -> ${dt}`,
-            },
-          ],
-        };
-      }
-
-      case "get_train_experiment_info": {
-        const { model_type } = args as any;
-        const defaultParams = MODEL_CONFIG[model_type];
-
-        if (!defaultParams) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Unknown model_type: ${model_type}. Supported: ${Object.keys(
-                  MODEL_CONFIG
-                ).join(", ")}.`,
-              },
-            ],
-          };
-        }
-
-        const paramsDescriptions = {
-          baseline_table: "Input table for baseline data.",
-          env: "Environment to run the training (dev, prod, etc).",
-          experiment_id: "MLflow experiment ID.",
-          experiment_name: "MLflow experiment name.",
-          model_name: "Name for the trained model.",
-          monitoring_mode: "Enable/disable model monitoring.",
-          training_script_path: "Path to the training script.",
-          uc_catalog: "Unity Catalog catalog name.",
-          uc_schema: "Unity Catalog schema name.",
-        };
-
-        const info = {
-          param_descriptions: paramsDescriptions,
-          default_params: defaultParams,
-        };
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(info, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "trigger_azure_devops_pipeline": {
-        const {
-          model_type,
-          branch = "dev",
-          platform = "databricks",
-          environment = "dev",
-        } = args as any;
-
-        const pat = process.env.AZURE_DEVOPS_PAT;
-        const organizationUrl = process.env.ORGANIZATION_URL;
-        const projectName = process.env.PROJECT_NAME;
-
-        if (!pat || !organizationUrl || !projectName) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Azure DevOps environment variables (AZURE_DEVOPS_PAT, ORGANIZATION_URL, PROJECT_NAME) must be set.",
-              },
-            ],
-          };
-        }
-
-        const modelParams = PIPELINE_CONFIG[model_type];
-        if (!modelParams) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Provided model is not supported. Supported Models: ${Object.keys(
-                  PIPELINE_CONFIG
-                ).join(", ")}.`,
-              },
-            ],
-          };
-        }
-
-        const pipelineId = modelParams.pipeline_id;
-        const parameters = { ...modelParams.parameters, platform, environment };
-
-        try {
-          // Azure DevOps REST API call
-          const auth = Buffer.from(`:${pat}`).toString("base64");
-          const response = await axios.post(
-            `${organizationUrl}/${projectName}/_apis/pipelines/${pipelineId}/runs?api-version=6.0-preview.1`,
-            {
-              resources: {
-                repositories: {
-                  self: { refName: `refs/heads/${branch}` },
-                },
-              },
-              templateParameters: parameters,
-            },
-            {
-              headers: {
-                Authorization: `Basic ${auth}`,
-                "Content-Type": "application/json",
-              },
-            }
-          );
-
-          const finalResponse = {
-            state: response.data.state,
-            run_id: response.data.id,
-            url: response.data.url,
-            created_date: response.data.createdDate,
-            message: `Successfully triggered Azure DevOps pipeline for model ${model_type}.`,
-          };
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(finalResponse, null, 2),
-              },
-            ],
-          };
-        } catch (error: any) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Failed to trigger Azure DevOps pipeline: ${error.message}`,
-              },
-            ],
-          };
-        }
-      }
-
-      default:
-        throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(response, null, 2),
+          },
+        ],
+      };
     }
-  } catch (error: any) {
-    throw new McpError(
-      ErrorCode.InternalError,
-      `Tool execution failed: ${error.message}`
-    );
-  }
-});
+  );
+
+  // 3. Get Latest Experiment Run
+  server.registerTool(
+    "get_latest_experiment_run",
+    {
+      title: "Get Latest Experiment Run",
+      description: "Fetches the latest run from a Databricks ML experiment",
+      inputSchema: {
+        experiment_id: z.string().describe("ML experiment ID"),
+      },
+    },
+    async ({ experiment_id }) => {
+      const client = new DatabricksClient();
+      const runs = await client.searchRuns(
+        [experiment_id],
+        ["start_time DESC"],
+        1
+      );
+
+      if (runs.runs && runs.runs.length > 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(runs.runs[0], null, 2),
+            },
+          ],
+        };
+      } else {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "No runs found for this experiment.",
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  // 4. Get Model Metadata
+  server.registerTool(
+    "get_model_metadata",
+    {
+      title: "Get Model Metadata",
+      description: "Fetches model metadata from a Databricks ML experiment",
+      inputSchema: {
+        experiment_id: z.string().describe("ML experiment ID"),
+      },
+    },
+    async ({ experiment_id }) => {
+      const client = new DatabricksClient();
+      const experiment = await client.getExperiment(experiment_id);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(experiment, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 5. Get Registered Model Info
+  server.registerTool(
+    "get_registered_model_info",
+    {
+      title: "Get Registered Model Info",
+      description: "Fetches registered model info from Unity Catalog",
+      inputSchema: {
+        model_name: z.string().describe("Name of the model"),
+        uc_catalog: z.string().describe("Unity Catalog catalog name"),
+        uc_schema: z.string().describe("Unity Catalog schema name"),
+      },
+    },
+    async ({ model_name, uc_catalog, uc_schema }) => {
+      const client = new DatabricksClient();
+      const fullModelName = `${uc_catalog}.${uc_schema}.${model_name}`;
+      const modelInfo = await client.getRegisteredModel(fullModelName);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(modelInfo, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 6. Check Databricks Job Status
+  server.registerTool(
+    "check_databricks_job_status",
+    {
+      title: "Check Databricks Job Status",
+      description: "Checks the status of a Databricks job",
+      inputSchema: {
+        job_id: z.string().describe("Job ID"),
+        run_id: z.string().describe("Run ID"),
+      },
+    },
+    async ({ job_id, run_id }) => {
+      const client = new DatabricksClient();
+      const resp = await client.getRun(parseInt(run_id));
+      const state = resp.state?.life_cycle_state;
+
+      let resultMessage = `Job ${job_id} (Run ${run_id}) is currently in state: ${state}.`;
+      if (resp.state?.result_state) {
+        resultMessage += ` Result: ${resp.state.result_state}.`;
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: resultMessage,
+          },
+        ],
+      };
+    }
+  );
+
+  // 7. Get Latest Running Job Runs
+  server.registerTool(
+    "get_latest_running_job_runs",
+    {
+      title: "Get Latest Running Job Runs",
+      description: "Fetches all running Databricks job runs",
+      inputSchema: {},
+    },
+    async () => {
+      const client = new DatabricksClient();
+      const runs = await client.listRuns(true);
+
+      if (runs.runs && runs.runs.length > 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(runs.runs, null, 2),
+            },
+          ],
+        };
+      } else {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "No running job runs found.",
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  // 8. Get Job Details
+  server.registerTool(
+    "get_job_details",
+    {
+      title: "Get Job Details",
+      description: "Fetches details for a specific Databricks job",
+      inputSchema: {
+        job_id: z.string().describe("Job ID"),
+      },
+    },
+    async ({ job_id }) => {
+      const client = new DatabricksClient();
+      const job = await client.getJob(parseInt(job_id));
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(job, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 9. Convert Epoch to DateTime
+  server.registerTool(
+    "convert_epoch_to_datetime",
+    {
+      title: "Convert Epoch to DateTime",
+      description: "Converts an epoch timestamp to readable date and time",
+      inputSchema: {
+        epoch_timestamp: z.string().describe("Epoch timestamp"),
+      },
+    },
+    async ({ epoch_timestamp }) => {
+      const timestamp = parseInt(epoch_timestamp);
+      const dt = new Date(timestamp * 1000).toLocaleString();
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Epoch ${epoch_timestamp} -> ${dt}`,
+          },
+        ],
+      };
+    }
+  );
+
+  // 10. Get Train Experiment Info
+  server.registerTool(
+    "get_train_experiment_info",
+    {
+      title: "Get Training Experiment Info",
+      description:
+        "Provides information about training parameters for a model type",
+      inputSchema: {
+        model_type: z
+          .enum(["shingrix-po", "shingrix-ppo", "digital-twin"])
+          .describe("Type of model"),
+      },
+    },
+    async ({ model_type }) => {
+      const defaultParams = MODEL_CONFIG[model_type];
+
+      if (!defaultParams) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Unknown model_type: ${model_type}. Supported: ${Object.keys(
+                MODEL_CONFIG
+              ).join(", ")}.`,
+            },
+          ],
+        };
+      }
+
+      const paramsDescriptions = {
+        baseline_table: "Input table for baseline data.",
+        env: "Environment to run the training (dev, prod, etc).",
+        experiment_id: "MLflow experiment ID.",
+        experiment_name: "MLflow experiment name.",
+        model_name: "Name for the trained model.",
+        monitoring_mode: "Enable/disable model monitoring.",
+        training_script_path: "Path to the training script.",
+        uc_catalog: "Unity Catalog catalog name.",
+        uc_schema: "Unity Catalog schema name.",
+      };
+
+      const info = {
+        param_descriptions: paramsDescriptions,
+        default_params: defaultParams,
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(info, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 11. Trigger Azure DevOps Pipeline
+  server.registerTool(
+    "trigger_azure_devops_pipeline",
+    {
+      title: "Trigger Azure DevOps Pipeline",
+      description: "Triggers an Azure DevOps pipeline for model deployment",
+      inputSchema: {
+        model_type: z.string().describe("Type of model"),
+        branch: z.string().optional().default("dev").describe("Git branch"),
+        platform: z
+          .string()
+          .optional()
+          .default("databricks")
+          .describe("Deployment platform"),
+        environment: z
+          .string()
+          .optional()
+          .default("dev")
+          .describe("Deployment environment"),
+      },
+    },
+    async ({
+      model_type,
+      branch = "dev",
+      platform = "databricks",
+      environment = "dev",
+    }) => {
+      const pat = process.env.AZURE_DEVOPS_PAT;
+      const organizationUrl = process.env.ORGANIZATION_URL;
+      const projectName = process.env.PROJECT_NAME;
+
+      if (!pat || !organizationUrl || !projectName) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Azure DevOps environment variables (AZURE_DEVOPS_PAT, ORGANIZATION_URL, PROJECT_NAME) must be set.",
+            },
+          ],
+        };
+      }
+
+      const modelParams = PIPELINE_CONFIG[model_type];
+      if (!modelParams) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Provided model is not supported. Supported Models: ${Object.keys(
+                PIPELINE_CONFIG
+              ).join(", ")}.`,
+            },
+          ],
+        };
+      }
+
+      const pipelineId = modelParams.pipeline_id;
+      const parameters = { ...modelParams.parameters, platform, environment };
+
+      try {
+        // Azure DevOps REST API call
+        const auth = Buffer.from(`:${pat}`).toString("base64");
+        const response = await axios.post(
+          `${organizationUrl}/${projectName}/_apis/pipelines/${pipelineId}/runs?api-version=6.0-preview.1`,
+          {
+            resources: {
+              repositories: {
+                self: { refName: `refs/heads/${branch}` },
+              },
+            },
+            templateParameters: parameters,
+          },
+          {
+            headers: {
+              Authorization: `Basic ${auth}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const finalResponse = {
+          state: response.data.state,
+          run_id: response.data.id,
+          url: response.data.url,
+          created_date: response.data.createdDate,
+          message: `Successfully triggered Azure DevOps pipeline for model ${model_type}.`,
+        };
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(finalResponse, null, 2),
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to trigger Azure DevOps pipeline: ${error.message}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  return server;
+}
 
 async function main() {
   const app = express();
   const port = process.env.PORT || 4000;
 
-  // Enable CORS
+  // Enable CORS with proper configuration for MCP
   app.use(
     cors({
-      origin: "*",
-      methods: ["GET", "POST", "OPTIONS"],
+      origin: "*", // Configure appropriately for production
+      methods: ["GET", "POST", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization", "mcp-session-id"],
-      exposedHeaders: ["mcp-session-id"],
+      exposedHeaders: ["mcp-session-id"], // Expose session ID header
     })
   );
 
   app.use(express.json());
+
+  // Map to store transports by session ID
+  const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
   // Health check endpoint
   app.get("/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  // MCP endpoint for unified protocol handling
-  app.route("/mcp").post(async (req, res) => {
-    console.log("POST request to /mcp");
-    console.log("Headers:", req.headers);
-    console.log("Body:", req.body);
-
-    // Set headers
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader("Transfer-Encoding", "chunked");
-
-    // Initialization request: create session
-    if (req.body?.method === "initialize") {
-      const sessionId = `session-${Math.random()
-        .toString(36)
-        .substring(2, 15)}`;
-      console.log("MCP session initialization via POST");
-      console.log(`Created new session ID: ${sessionId}`);
-      res.setHeader("mcp-session-id", sessionId);
-      res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
-
-      const response = {
-        jsonrpc: "2.0",
-        id: req.body.id,
-        result: {
-          protocolVersion: "2023-07-01",
-          serverInfo: {
-            name: "databricks-mcp-server",
-            version: "1.0.0",
-          },
-          serverCapabilities: {
-            tools: {},
-          },
-        },
-      };
-      console.log(
-        "Sending initialization response:",
-        JSON.stringify(response, null, 2)
-      );
-      res.write(JSON.stringify(response));
-      res.end();
-      return;
-    }
-
-    // Require session ID for all other requests
-    const sessionId = Array.isArray(req.headers["mcp-session-id"])
-      ? req.headers["mcp-session-id"][0]
-      : req.headers["mcp-session-id"];
-
-    if (!sessionId) {
-      const errorResponse = {
-        jsonrpc: "2.0",
-        id: req.body.id,
-        error: {
-          code: -32000,
-          message:
-            "Missing mcp-session-id header. Please initialize session first.",
-        },
-      };
-      res.write(JSON.stringify(errorResponse));
-      res.end();
-      return;
-    }
-
-    res.setHeader("mcp-session-id", sessionId);
-    console.log(`Handling method: ${req.body.method}`);
-
-    // Handle shutdown
-    if (req.body?.method === "shutdown") {
-      console.log("MCP session shutdown via POST");
-      console.log(`Closing session: ${sessionId}`);
-      const response = {
-        jsonrpc: "2.0",
-        id: req.body.id,
-        result: {},
-      };
-      res.write(JSON.stringify(response));
-      res.end();
-      return;
-    }
-
+  // Handle POST requests for client-to-server communication
+  app.post("/mcp", async (req, res) => {
     try {
-      if (typeof sessionId !== "string") {
-        throw new Error("Invalid session ID.");
-      }
+      console.log("POST request to /mcp");
+      console.log("Headers:", req.headers);
+      console.log("Body method:", req.body?.method);
 
-      // Handle tool calls with timeout
-      if (req.body.method === "tools/call") {
-        const timeoutMs = 30000; // 30 second timeout
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => {
-            reject(new McpError(ErrorCode.RequestTimeout, "Request timed out"));
-          }, timeoutMs);
+      // Check for existing session ID
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      let transport: StreamableHTTPServerTransport;
+
+      if (sessionId && transports[sessionId]) {
+        // Reuse existing transport
+        console.log(`Reusing existing transport for session: ${sessionId}`);
+        transport = transports[sessionId];
+      } else if (!sessionId && isInitializeRequest(req.body)) {
+        // New initialization request
+        console.log("Creating new transport for initialization");
+
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (sessionId) => {
+            console.log(`Session initialized: ${sessionId}`);
+            // Store the transport by session ID
+            transports[sessionId] = transport;
+          },
+          // Enable DNS rebinding protection for security
+          enableDnsRebindingProtection: true,
+          allowedHosts: ["127.0.0.1", "localhost", "localhost:4000"],
         });
 
-        try {
-          // Race between the tool call and timeout
-          const result = await Promise.race([
-            server.request(req.body, CallToolRequestSchema),
-            timeoutPromise,
-          ]);
-
-          res.write(JSON.stringify(result));
-          res.end();
-        } catch (toolError) {
-          if (
-            toolError instanceof McpError &&
-            toolError.code === ErrorCode.RequestTimeout
-          ) {
-            const errorResponse = {
-              jsonrpc: "2.0",
-              id: req.body.id,
-              error: {
-                code: ErrorCode.RequestTimeout,
-                message: "Request timed out",
-              },
-            };
-            res.write(JSON.stringify(errorResponse));
-          } else {
-            throw toolError;
+        // Clean up transport when closed
+        transport.onclose = () => {
+          console.log(`Transport closed for session: ${transport.sessionId}`);
+          if (transport.sessionId) {
+            delete transports[transport.sessionId];
           }
-          res.end();
-        }
-      }
-      // Handle tool listing
-      else if (req.body.method === "tools/list") {
-        const result = await server.request(req.body, ListToolsRequestSchema);
-        res.write(JSON.stringify(result));
-        res.end();
+        };
+
+        // Create and connect server
+        const server = createMcpServer();
+        await server.connect(transport);
+        console.log("Server connected to new transport");
       } else {
-        // Default response for unknown methods
-        throw new McpError(
-          ErrorCode.MethodNotFound,
-          `Unknown method: ${req.body.method}`
-        );
+        // Invalid request
+        console.log("Invalid request - no session ID and not initialization");
+        res.status(400).json({
+          jsonrpc: "2.0",
+          error: {
+            code: -32000,
+            message: "Bad Request: No valid session ID provided",
+          },
+          id: req.body?.id || null,
+        });
+        return;
       }
+
+      // Handle the request
+      await transport.handleRequest(req, res, req.body);
     } catch (error) {
-      console.error("Error handling request:", error);
-      const errorResponse = {
-        jsonrpc: "2.0",
-        id: req.body.id,
-        error: {
-          code: error instanceof McpError ? error.code : -32001,
-          message: error instanceof Error ? error.message : String(error),
-        },
-      };
-      res.write(JSON.stringify(errorResponse));
-      res.end();
+      console.error("Error handling POST request:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: "2.0",
+          error: {
+            code: -32603,
+            message: "Internal server error",
+          },
+          id: req.body?.id || null,
+        });
+      }
     }
   });
 
-  // Keep the old SSE endpoint for backward compatibility
-  app
-    .route("/sse")
-    .get(async (req, res) => {
-      console.log("Legacy SSE connection established via GET");
-      console.log("Headers:", req.headers);
-      console.log("Query params:", req.query);
+  // Handle GET requests for server-to-client notifications via SSE
+  app.get("/mcp", async (req, res) => {
+    try {
+      console.log("GET request to /mcp");
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
-      try {
-        const transport = new SSEServerTransport("/sse", res);
-        console.log("Created SSE transport, connecting to server...");
-        await server.connect(transport);
-        console.log("Server connected to transport");
-      } catch (error) {
-        console.error("Error connecting to SSE transport:", error);
-        if (!res.headersSent) {
-          res.status(500).send("Error connecting to SSE transport");
-        }
+      if (!sessionId || !transports[sessionId]) {
+        console.log("Invalid GET request - missing or invalid session ID");
+        res.status(400).send("Invalid or missing session ID");
+        return;
       }
-    })
-    .post(async (req, res) => {
-      console.log("Legacy SSE connection established via POST");
-      console.log("Headers:", req.headers);
-      console.log("Body:", req.body);
 
-      try {
-        const transport = new SSEServerTransport("/sse", res);
-        console.log("Created SSE transport, connecting to server...");
-        await server.connect(transport);
-        console.log("Server connected to transport");
-      } catch (error) {
-        console.error("Error connecting to SSE transport:", error);
-        if (!res.headersSent) {
-          res.status(500).send("Error connecting to SSE transport");
-        }
+      const transport = transports[sessionId];
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error("Error handling GET request:", error);
+      if (!res.headersSent) {
+        res.status(500).send("Internal server error");
       }
-    });
+    }
+  });
+
+  // Handle DELETE requests for session termination
+  app.delete("/mcp", async (req, res) => {
+    try {
+      console.log("DELETE request to /mcp");
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+      if (!sessionId || !transports[sessionId]) {
+        console.log("Invalid DELETE request - missing or invalid session ID");
+        res.status(400).send("Invalid or missing session ID");
+        return;
+      }
+
+      const transport = transports[sessionId];
+      await transport.handleRequest(req, res);
+
+      // Clean up the session
+      if (transport.sessionId) {
+        delete transports[transport.sessionId];
+        console.log(
+          `Session terminated and cleaned up: ${transport.sessionId}`
+        );
+      }
+    } catch (error) {
+      console.error("Error handling DELETE request:", error);
+      if (!res.headersSent) {
+        res.status(500).send("Internal server error");
+      }
+    }
+  });
+
+  // Handle OPTIONS requests for CORS preflight
+  app.options("/mcp", (req, res) => {
+    res.status(200).end();
+  });
 
   app.listen(port, () => {
     console.log(
-      `Databricks MCP server running on HTTP with SSE at http://localhost:${port}`
+      `Databricks MCP server running with StreamableHTTP transport at http://localhost:${port}`
     );
-    console.log(
-      `Connect to: http://localhost:${port}/mcp (recommended) or http://localhost:${port}/sse (legacy)`
-    );
+    console.log(`MCP endpoint: http://localhost:${port}/mcp`);
+    console.log(`Health check: http://localhost:${port}/health`);
+    console.log("All tools registered successfully:");
+    console.log("- run_databricks_notebook");
+    console.log("- train_and_register_model");
+    console.log("- get_latest_experiment_run");
+    console.log("- get_model_metadata");
+    console.log("- get_registered_model_info");
+    console.log("- check_databricks_job_status");
+    console.log("- get_latest_running_job_runs");
+    console.log("- get_job_details");
+    console.log("- convert_epoch_to_datetime");
+    console.log("- get_train_experiment_info");
+    console.log("- trigger_azure_devops_pipeline");
   });
 }
 

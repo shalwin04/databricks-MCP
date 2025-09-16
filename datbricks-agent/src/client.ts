@@ -2,23 +2,18 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import {
-  CallToolRequest,
-  CallToolResult,
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import readline from "readline";
-import { z } from "zod";
 
 /**
  * MCP Client for Databricks Server
- * Built following official MCP SDK patterns
+ * Built following official MCP SDK patterns with proper StreamableHTTP support
  */
 export class DatabricksMCPClient {
   private client: Client;
   private transport:
-    | StdioClientTransport
     | StreamableHTTPClientTransport
+    | StdioClientTransport
     | null = null;
   private connected = false;
 
@@ -45,10 +40,7 @@ export class DatabricksMCPClient {
         // HTTP transport for remote server
         console.log(`Connecting to MCP server at ${this.serverUrl}...`);
         this.transport = new StreamableHTTPClientTransport(
-          new URL(this.serverUrl),
-          {
-            sessionId: `session-${Math.random().toString(36).substring(2, 15)}`,
-          }
+          new URL(this.serverUrl)
         );
       } else {
         // Stdio transport for local server
@@ -59,6 +51,7 @@ export class DatabricksMCPClient {
         });
       }
 
+      // Use type assertion to work around strict type checking
       await this.client.connect(this.transport as any);
       this.connected = true;
       console.log("✅ Connected to MCP server");
@@ -82,30 +75,8 @@ export class DatabricksMCPClient {
     }
 
     try {
-      const request = {
-        method: "tools/list",
-        params: {},
-      };
-      // The MCP SDK may expect a result schema type, but Tool is a type, not a value. Remove as argument.
-      const response = await this.client.request(
-        request,
-        z.object({
-          tools: z.array(
-            z.object({
-              name: z.string(),
-              description: z.string().optional(),
-              inputSchema: z
-                .object({
-                  properties: z.record(z.any()).optional(),
-                  required: z.array(z.string()).optional(),
-                })
-                .optional(),
-            })
-          ),
-        })
-      );
-      // The response should have a 'tools' property
-      return (response as { tools: Tool[] }).tools;
+      const response = await this.client.listTools();
+      return response.tools;
     } catch (error: unknown) {
       if (error instanceof Error) {
         console.error("Failed to list tools:", error.message);
@@ -129,25 +100,25 @@ export class DatabricksMCPClient {
     }
 
     try {
-      const request: CallToolRequest = {
-        method: "tools/call",
-        params: {
-          name,
-          arguments: args,
-        },
-      };
-
       console.log(`Calling tool: ${name}`);
       if (Object.keys(args).length > 0) {
         console.log(`Parameters:`, JSON.stringify(args, null, 2));
       }
 
-      const result = await this.client.request(request, z.object({}));
-      // Ensure result has 'content' property
-      if (!("content" in result)) {
-        (result as CallToolResult).content = [];
-      }
-      return result as CallToolResult;
+      const result = await this.client.callTool({
+        name,
+        arguments: args,
+      });
+
+      // Return the result directly - it's already a CallToolResult
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
     } catch (error: unknown) {
       if (error instanceof Error) {
         console.error(`Failed to call tool ${name}:`, error.message);
@@ -333,10 +304,17 @@ class DatabricksMCPCLI {
     console.log("\n📋 Available tools:");
     this.tools.forEach((tool, index) => {
       console.log(`  ${index + 1}. ${tool.name}`);
-      console.log(`     ${tool.description}`);
-      if (tool.inputSchema?.properties) {
-        const params = Object.keys(tool.inputSchema.properties);
-        console.log(`     Parameters: ${params.join(", ")}`);
+      console.log(`     ${tool.description || "No description"}`);
+      if (
+        tool.inputSchema &&
+        typeof tool.inputSchema === "object" &&
+        "properties" in tool.inputSchema
+      ) {
+        const properties = tool.inputSchema.properties as Record<string, any>;
+        const params = Object.keys(properties);
+        if (params.length > 0) {
+          console.log(`     Parameters: ${params.join(", ")}`);
+        }
       }
       console.log("");
     });
@@ -421,10 +399,15 @@ class DatabricksMCPCLI {
     const params: Record<string, unknown> = {};
 
     // Get parameters if tool requires them
-    if (tool.inputSchema?.properties) {
-      const required = tool.inputSchema.required || [];
+    if (
+      tool.inputSchema &&
+      typeof tool.inputSchema === "object" &&
+      "properties" in tool.inputSchema
+    ) {
+      const properties = tool.inputSchema.properties as Record<string, any>;
+      const required = (tool.inputSchema as any).required || [];
 
-      for (const paramName of Object.keys(tool.inputSchema.properties)) {
+      for (const paramName of Object.keys(properties)) {
         const isRequired = required.includes(paramName);
         const prompt = isRequired
           ? `${paramName} (required): `
@@ -486,7 +469,7 @@ class DatabricksMCPCLI {
     try {
       const result = await this.client.trainAndRegisterModel("shingrix-po");
       console.log("✅ Training started:");
-      if (result.content && result.content[0]) {
+      if (result.content && result.content[0] && "text" in result.content[0]) {
         console.log(result.content[0].text);
       }
     } catch (error: unknown) {
@@ -506,7 +489,11 @@ class DatabricksMCPCLI {
       try {
         const result = await this.client.checkJobStatus(jobId, runId);
         console.log("✅ Status:");
-        if (result.content && result.content[0]) {
+        if (
+          result.content &&
+          result.content[0] &&
+          "text" in result.content[0]
+        ) {
           console.log(result.content[0].text);
         }
       } catch (error: unknown) {
@@ -524,7 +511,7 @@ class DatabricksMCPCLI {
     try {
       const result = await this.client.getRunningJobRuns();
       console.log("✅ Running jobs:");
-      if (result.content && result.content[0]) {
+      if (result.content && result.content[0] && "text" in result.content[0]) {
         try {
           const text =
             typeof result.content[0].text === "string"
