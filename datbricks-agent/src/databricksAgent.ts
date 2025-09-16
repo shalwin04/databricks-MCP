@@ -58,6 +58,8 @@ export class DatabricksAgent {
           params.platform,
           params.environment
         );
+      case "listClusters":
+        return await this.mcp.callTool("list_clusters");
       default:
         throw new Error(`Unknown request: ${request}`);
     }

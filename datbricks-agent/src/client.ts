@@ -134,6 +134,11 @@ export class DatabricksMCPClient {
    * Convenience methods for each Databricks tool
    */
 
+  // NEW METHOD: List all Databricks clusters
+  async listClusters(): Promise<CallToolResult> {
+    return this.callTool("list_clusters");
+  }
+
   async runNotebook(
     notebookPath: string,
     baseParams: Record<string, unknown> = {},
@@ -378,6 +383,9 @@ class DatabricksMCPCLI {
 
     // Handle preset commands
     switch (command) {
+      case "clusters":
+        await this.showClusters();
+        break;
       case "quick-train":
         await this.quickTrain();
         break;
@@ -464,6 +472,33 @@ class DatabricksMCPCLI {
     console.log(""); // Add spacing
   }
 
+  // NEW METHOD: Show clusters quickly
+  private async showClusters(): Promise<void> {
+    console.log("🔍 Getting Databricks clusters...");
+    try {
+      const result = await this.client.listClusters();
+      console.log("✅ Clusters:");
+      if (result.content && result.content[0] && "text" in result.content[0]) {
+        try {
+          const text =
+            typeof result.content[0].text === "string"
+              ? result.content[0].text
+              : String(result.content[0].text);
+          const parsed = JSON.parse(text);
+          console.log(JSON.stringify(parsed, null, 2));
+        } catch {
+          console.log(result.content[0].text);
+        }
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("❌ Failed to get clusters:", error.message);
+      } else {
+        console.error("❌ Failed to get clusters:", error);
+      }
+    }
+  }
+
   private async quickTrain(): Promise<void> {
     console.log("🏃 Quick training - shingrix-po model");
     try {
@@ -539,6 +574,7 @@ class DatabricksMCPCLI {
   tools, list    - Show available tools
   <number>       - Execute tool by number (e.g., "1")
   <tool-name>    - Execute tool by name
+  clusters       - Show all Databricks clusters
   quick-train    - Quick train shingrix-po model
   status         - Check job status (prompts for IDs)
   running        - Show running jobs

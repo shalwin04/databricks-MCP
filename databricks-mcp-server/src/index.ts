@@ -834,6 +834,29 @@ function createMcpServer(): McpServer {
     }
   );
 
+  // 12. List Clusters - NEW TOOL
+  server.registerTool(
+    "list_clusters",
+    {
+      title: "List Databricks Clusters",
+      description: "Lists all Databricks clusters in the workspace",
+      inputSchema: {},
+    },
+    async () => {
+      const client = new DatabricksClient();
+      const clusters = await client.listClusters();
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(clusters, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
   return server;
 }
 
@@ -887,9 +910,8 @@ async function main() {
             // Store the transport by session ID
             transports[sessionId] = transport;
           },
-          // Enable DNS rebinding protection for security
-          enableDnsRebindingProtection: true,
-          allowedHosts: ["127.0.0.1", "localhost", "localhost:4000"],
+          // Disable DNS rebinding protection for development
+          enableDnsRebindingProtection: false,
         });
 
         // Clean up transport when closed
@@ -1010,6 +1032,7 @@ async function main() {
     console.log("- convert_epoch_to_datetime");
     console.log("- get_train_experiment_info");
     console.log("- trigger_azure_devops_pipeline");
+    console.log("- list_clusters");
   });
 }
 
