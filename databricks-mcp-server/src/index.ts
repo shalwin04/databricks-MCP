@@ -107,21 +107,27 @@ class DatabricksClient {
   constructor() {
     this.host = process.env.DATABRICKS_HOST || "";
     this.token = process.env.DATABRICKS_TOKEN || "";
-    
+
     if (!this.host || !this.token) {
-      throw new Error("DATABRICKS_HOST and DATABRICKS_TOKEN must be set in environment variables");
+      throw new Error(
+        "DATABRICKS_HOST and DATABRICKS_TOKEN must be set in environment variables"
+      );
     }
-    
+
     this.baseUrl = `${this.host}/api/2.1`;
   }
 
-  private async makeRequest(endpoint: string, method: string = "GET", data?: any): Promise<any> {
+  private async makeRequest(
+    endpoint: string,
+    method: string = "GET",
+    data?: any
+  ): Promise<any> {
     try {
       const response = await axios({
         method,
         url: `${this.baseUrl}${endpoint}`,
         headers: {
-          "Authorization": `Bearer ${this.token}`,
+          Authorization: `Bearer ${this.token}`,
           "Content-Type": "application/json",
         },
         data,
@@ -137,7 +143,9 @@ class DatabricksClient {
   }
 
   async startCluster(clusterId: string): Promise<any> {
-    return this.makeRequest("/clusters/start", "POST", { cluster_id: clusterId });
+    return this.makeRequest("/clusters/start", "POST", {
+      cluster_id: clusterId,
+    });
   }
 
   async createCluster(config: any): Promise<any> {
@@ -166,18 +174,28 @@ class DatabricksClient {
   }
 
   async getExperiment(experimentId: string): Promise<any> {
-    return this.makeRequest(`/mlflow/experiments/get?experiment_id=${experimentId}`);
+    return this.makeRequest(
+      `/mlflow/experiments/get?experiment_id=${experimentId}`
+    );
   }
 
   async getExperimentByName(name: string): Promise<any> {
-    return this.makeRequest(`/mlflow/experiments/get-by-name?experiment_name=${encodeURIComponent(name)}`);
+    return this.makeRequest(
+      `/mlflow/experiments/get-by-name?experiment_name=${encodeURIComponent(
+        name
+      )}`
+    );
   }
 
   async createExperiment(name: string): Promise<any> {
     return this.makeRequest("/mlflow/experiments/create", "POST", { name });
   }
 
-  async searchRuns(experimentIds: string[], orderBy: string[] = [], maxResults: number = 1000): Promise<any> {
+  async searchRuns(
+    experimentIds: string[],
+    orderBy: string[] = [],
+    maxResults: number = 1000
+  ): Promise<any> {
     return this.makeRequest("/mlflow/runs/search", "POST", {
       experiment_ids: experimentIds,
       order_by: orderBy,
@@ -186,7 +204,9 @@ class DatabricksClient {
   }
 
   async getRegisteredModel(fullName: string): Promise<any> {
-    return this.makeRequest(`/unity-catalog/models/${encodeURIComponent(fullName)}`);
+    return this.makeRequest(
+      `/unity-catalog/models/${encodeURIComponent(fullName)}`
+    );
   }
 }
 
@@ -202,7 +222,7 @@ class DatabricksNotebookRunner {
     if (clusterId) return clusterId;
 
     const clusters = await this.client.listClusters();
-    
+
     // Find running cluster
     for (const cluster of clusters.clusters || []) {
       if (cluster.state === "RUNNING") {
@@ -225,7 +245,7 @@ class DatabricksNotebookRunner {
       node_type_id: "Standard_DS3_v2",
       num_workers: 2,
     };
-    
+
     const result = await this.client.createCluster(clusterConfig);
     return result.cluster_id;
   }
@@ -236,7 +256,7 @@ class DatabricksNotebookRunner {
     jobName: string = "AgentJob"
   ): Promise<{ jobId: number; runId: number }> {
     const clusterId = await this.getRunningClusterId();
-    
+
     const jobSettings = {
       name: jobName,
       tasks: [
@@ -255,20 +275,23 @@ class DatabricksNotebookRunner {
 
     const jobResp = await this.client.createJob(jobSettings);
     const runResp = await this.client.runNow(jobResp.job_id);
-    
+
     return { jobId: jobResp.job_id, runId: runResp.run_id };
   }
 
-  async waitForCompletion(runId: number, pollInterval: number = 10000): Promise<any> {
+  async waitForCompletion(
+    runId: number,
+    pollInterval: number = 10000
+  ): Promise<any> {
     while (true) {
       const resp = await this.client.getRun(runId);
       const state = resp.state?.life_cycle_state;
-      
+
       if (["TERMINATED", "SKIPPED", "INTERNAL_ERROR"].includes(state)) {
         return resp;
       }
-      
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
     }
   }
 }
@@ -276,13 +299,13 @@ class DatabricksNotebookRunner {
 async function checkForExperiment(experimentName: string): Promise<any> {
   const runner = new DatabricksNotebookRunner();
   const client = new DatabricksClient();
-  
+
   if (!experimentName) {
     return { error: "Please provide experiment_name." };
   }
 
   const experimentPath = `/Shared/${experimentName}`;
-  
+
   try {
     const experiment = await client.getExperimentByName(experimentPath);
     return {
@@ -298,7 +321,9 @@ async function checkForExperiment(experimentName: string): Promise<any> {
         experiment_name: experimentPath,
       };
     } catch (createError: any) {
-      return { error: `Failed to get or create experiment: ${createError.message}` };
+      return {
+        error: `Failed to get or create experiment: ${createError.message}`,
+      };
     }
   }
 }
@@ -311,7 +336,7 @@ const server = new Server(
   {
     capabilities: {
       tools: {},
-    }
+    },
   }
 );
 
@@ -324,9 +349,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            notebook_path: { type: "string", description: "Path to the notebook" },
-            base_params: { type: "object", description: "Parameters for the notebook" },
-            job_name: { type: "string", description: "Name for the job", default: "AgentJob" },
+            notebook_path: {
+              type: "string",
+              description: "Path to the notebook",
+            },
+            base_params: {
+              type: "object",
+              description: "Parameters for the notebook",
+            },
+            job_name: {
+              type: "string",
+              description: "Name for the job",
+              default: "AgentJob",
+            },
           },
           required: ["notebook_path"],
         },
@@ -337,9 +372,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            job_name: { type: "string", description: "Name of the job", default: "DDT-Train-and-Register-Model" },
-            additional_params: { type: "object", description: "Additional parameters for training" },
-            model_type: { type: "string", description: "Type of model", enum: ["shingrix-po", "shingrix-ppo", "digital-twin"], default: "shingrix-po" },
+            job_name: {
+              type: "string",
+              description: "Name of the job",
+              default: "DDT-Train-and-Register-Model",
+            },
+            additional_params: {
+              type: "object",
+              description: "Additional parameters for training",
+            },
+            model_type: {
+              type: "string",
+              description: "Type of model",
+              enum: ["shingrix-po", "shingrix-ppo", "digital-twin"],
+              default: "shingrix-po",
+            },
           },
           required: [],
         },
@@ -373,8 +420,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           type: "object",
           properties: {
             model_name: { type: "string", description: "Name of the model" },
-            uc_catalog: { type: "string", description: "Unity Catalog catalog name" },
-            uc_schema: { type: "string", description: "Unity Catalog schema name" },
+            uc_catalog: {
+              type: "string",
+              description: "Unity Catalog catalog name",
+            },
+            uc_schema: {
+              type: "string",
+              description: "Unity Catalog schema name",
+            },
           },
           required: ["model_name", "uc_catalog", "uc_schema"],
         },
@@ -423,11 +476,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "get_train_experiment_info",
-        description: "Provides information about training parameters for a model type",
+        description:
+          "Provides information about training parameters for a model type",
         inputSchema: {
           type: "object",
           properties: {
-            model_type: { type: "string", description: "Type of model", enum: ["shingrix-po", "shingrix-ppo", "digital-twin"] },
+            model_type: {
+              type: "string",
+              description: "Type of model",
+              enum: ["shingrix-po", "shingrix-ppo", "digital-twin"],
+            },
           },
           required: ["model_type"],
         },
@@ -439,9 +497,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           type: "object",
           properties: {
             model_type: { type: "string", description: "Type of model" },
-            branch: { type: "string", description: "Git branch", default: "dev" },
-            platform: { type: "string", description: "Deployment platform", default: "databricks" },
-            environment: { type: "string", description: "Deployment environment", default: "dev" },
+            branch: {
+              type: "string",
+              description: "Git branch",
+              default: "dev",
+            },
+            platform: {
+              type: "string",
+              description: "Deployment platform",
+              default: "databricks",
+            },
+            environment: {
+              type: "string",
+              description: "Deployment environment",
+              default: "dev",
+            },
           },
           required: ["model_type"],
         },
@@ -456,9 +526,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case "run_databricks_notebook": {
-        const { notebook_path, base_params = {}, job_name = "AgentJob" } = args as any;
+        const {
+          notebook_path,
+          base_params = {},
+          job_name = "AgentJob",
+        } = args as any;
         const runner = new DatabricksNotebookRunner();
-        const { jobId, runId } = await runner.createAndRunNotebook(notebook_path, base_params, job_name);
+        const { jobId, runId } = await runner.createAndRunNotebook(
+          notebook_path,
+          base_params,
+          job_name
+        );
         return {
           content: [
             {
@@ -470,17 +548,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "train_and_register_model": {
-        const { job_name = "DDT-Train-and-Register-Model", additional_params = {}, model_type = "shingrix-po" } = args as any;
-        
-        const notebookPath = "/Workspace/Shared/D3-DDT-Train_R_models/Train_R_Model_Cloned";
+        const {
+          job_name = "DDT-Train-and-Register-Model",
+          additional_params = {},
+          model_type = "shingrix-po",
+        } = args as any;
+
+        const notebookPath =
+          "/Workspace/Shared/D3-DDT-Train_R_models/Train_R_Model_Cloned";
         let baseParams = MODEL_CONFIG[model_type];
-        
+
         if (!baseParams) {
           return {
             content: [
               {
                 type: "text",
-                text: `Provided model is not supported. Supported Models are: ${Object.keys(MODEL_CONFIG).join(", ")}`,
+                text: `Provided model is not supported. Supported Models are: ${Object.keys(
+                  MODEL_CONFIG
+                ).join(", ")}`,
               },
             ],
           };
@@ -491,7 +576,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (newExperimentName) {
           const experimentResult = await checkForExperiment(newExperimentName);
           if (!experimentResult.error) {
-            if (experimentResult.experiment_name !== baseParams.experiment_name) {
+            if (
+              experimentResult.experiment_name !== baseParams.experiment_name
+            ) {
               baseParams.experiment_id = experimentResult.experiment_id;
               baseParams.experiment_name = experimentResult.experiment_name;
             }
@@ -503,7 +590,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const runner = new DatabricksNotebookRunner();
-        const { jobId, runId } = await runner.createAndRunNotebook(notebookPath, baseParams, job_name);
+        const { jobId, runId } = await runner.createAndRunNotebook(
+          notebookPath,
+          baseParams,
+          job_name
+        );
 
         const response = {
           message: `Shingrix model training job has been triggered with job: ${jobId}.`,
@@ -528,8 +619,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "get_latest_experiment_run": {
         const { experiment_id } = args as any;
         const client = new DatabricksClient();
-        const runs = await client.searchRuns([experiment_id], ["start_time DESC"], 1);
-        
+        const runs = await client.searchRuns(
+          [experiment_id],
+          ["start_time DESC"],
+          1
+        );
+
         if (runs.runs && runs.runs.length > 0) {
           return {
             content: [
@@ -555,7 +650,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { experiment_id } = args as any;
         const client = new DatabricksClient();
         const experiment = await client.getExperiment(experiment_id);
-        
+
         return {
           content: [
             {
@@ -571,7 +666,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const client = new DatabricksClient();
         const fullModelName = `${uc_catalog}.${uc_schema}.${model_name}`;
         const modelInfo = await client.getRegisteredModel(fullModelName);
-        
+
         return {
           content: [
             {
@@ -587,12 +682,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const client = new DatabricksClient();
         const resp = await client.getRun(parseInt(run_id));
         const state = resp.state?.life_cycle_state;
-        
+
         let resultMessage = `Job ${job_id} (Run ${run_id}) is currently in state: ${state}.`;
         if (resp.state?.result_state) {
           resultMessage += ` Result: ${resp.state.result_state}.`;
         }
-        
+
         return {
           content: [
             {
@@ -606,7 +701,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "get_latest_running_job_runs": {
         const client = new DatabricksClient();
         const runs = await client.listRuns(true);
-        
+
         if (runs.runs && runs.runs.length > 0) {
           return {
             content: [
@@ -632,7 +727,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { job_id } = args as any;
         const client = new DatabricksClient();
         const job = await client.getJob(parseInt(job_id));
-        
+
         return {
           content: [
             {
@@ -647,7 +742,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { epoch_timestamp } = args as any;
         const timestamp = parseInt(epoch_timestamp);
         const dt = new Date(timestamp * 1000).toLocaleString();
-        
+
         return {
           content: [
             {
@@ -661,13 +756,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "get_train_experiment_info": {
         const { model_type } = args as any;
         const defaultParams = MODEL_CONFIG[model_type];
-        
+
         if (!defaultParams) {
           return {
             content: [
               {
                 type: "text",
-                text: `Unknown model_type: ${model_type}. Supported: ${Object.keys(MODEL_CONFIG).join(", ")}.`,
+                text: `Unknown model_type: ${model_type}. Supported: ${Object.keys(
+                  MODEL_CONFIG
+                ).join(", ")}.`,
               },
             ],
           };
@@ -701,8 +798,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "trigger_azure_devops_pipeline": {
-        const { model_type, branch = "dev", platform = "databricks", environment = "dev" } = args as any;
-        
+        const {
+          model_type,
+          branch = "dev",
+          platform = "databricks",
+          environment = "dev",
+        } = args as any;
+
         const pat = process.env.AZURE_DEVOPS_PAT;
         const organizationUrl = process.env.ORGANIZATION_URL;
         const projectName = process.env.PROJECT_NAME;
@@ -724,7 +826,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [
               {
                 type: "text",
-                text: `Provided model is not supported. Supported Models: ${Object.keys(PIPELINE_CONFIG).join(", ")}.`,
+                text: `Provided model is not supported. Supported Models: ${Object.keys(
+                  PIPELINE_CONFIG
+                ).join(", ")}.`,
               },
             ],
           };
@@ -735,21 +839,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         try {
           // Azure DevOps REST API call
-          const auth = Buffer.from(`:${pat}`).toString('base64');
+          const auth = Buffer.from(`:${pat}`).toString("base64");
           const response = await axios.post(
             `${organizationUrl}/${projectName}/_apis/pipelines/${pipelineId}/runs?api-version=6.0-preview.1`,
             {
               resources: {
                 repositories: {
-                  self: { refName: `refs/heads/${branch}` }
-                }
+                  self: { refName: `refs/heads/${branch}` },
+                },
               },
               templateParameters: parameters,
             },
             {
               headers: {
-                'Authorization': `Basic ${auth}`,
-                'Content-Type': 'application/json',
+                Authorization: `Basic ${auth}`,
+                "Content-Type": "application/json",
               },
             }
           );
@@ -786,7 +890,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     }
   } catch (error: any) {
-    throw new McpError(ErrorCode.InternalError, `Tool execution failed: ${error.message}`);
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Tool execution failed: ${error.message}`
+    );
   }
 });
 
@@ -795,152 +902,174 @@ async function main() {
   const port = process.env.PORT || 4000;
 
   // Enable CORS
-  app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'mcp-session-id'],
-    exposedHeaders: ['mcp-session-id']
-  }));
+  app.use(
+    cors({
+      origin: "*",
+      methods: ["GET", "POST", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "mcp-session-id"],
+      exposedHeaders: ["mcp-session-id"],
+    })
+  );
 
   app.use(express.json());
 
   // Health check endpoint
-  app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  app.get("/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
   // MCP endpoint for unified protocol handling
-  app.route('/mcp')
-    .post(async (req, res) => {
-      console.log('POST request to /mcp');
-      console.log('Headers:', req.headers);
-      console.log('Body:', req.body);
+  app.route("/mcp").post(async (req, res) => {
+    console.log("POST request to /mcp");
+    console.log("Headers:", req.headers);
+    console.log("Body:", req.body);
 
-      // Initialization request: create session
-      if (req.body?.method === 'initialize') {
-        const sessionId = `session-${Math.random().toString(36).substring(2, 15)}`;
-        console.log('MCP session initialization via POST');
-        console.log(`Created new session ID: ${sessionId}`);
-        res.setHeader('mcp-session-id', sessionId);
-        res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
-        res.setHeader('Content-Type', 'application/json');
-        const response = {
-          jsonrpc: '2.0',
-          id: req.body.id,
-          result: {
-            protocolVersion: '2023-07-01',
-            serverInfo: {
-              name: 'databricks-mcp-server',
-              version: '1.0.0'
-            },
-            serverCapabilities: {
-              tools: {}
-            }
-          }
-        };
-        console.log('Sending initialization response:', JSON.stringify(response, null, 2));
-        res.json(response);
-        return;
+    // Initialization request: create session
+    if (req.body?.method === "initialize") {
+      const sessionId = `session-${Math.random()
+        .toString(36)
+        .substring(2, 15)}`;
+      console.log("MCP session initialization via POST");
+      console.log(`Created new session ID: ${sessionId}`);
+      res.setHeader("mcp-session-id", sessionId);
+      res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+      res.setHeader("Content-Type", "application/json");
+      const response = {
+        jsonrpc: "2.0",
+        id: req.body.id,
+        result: {
+          protocolVersion: "2023-07-01",
+          serverInfo: {
+            name: "databricks-mcp-server",
+            version: "1.0.0",
+          },
+          serverCapabilities: {
+            tools: {},
+          },
+        },
+      };
+      console.log(
+        "Sending initialization response:",
+        JSON.stringify(response, null, 2)
+      );
+      res.json(response);
+      return;
+    }
+
+    // Require session ID for all other requests
+    const sessionId = Array.isArray(req.headers["mcp-session-id"])
+      ? req.headers["mcp-session-id"][0]
+      : req.headers["mcp-session-id"];
+    if (!sessionId) {
+      res.status(400).json({
+        jsonrpc: "2.0",
+        id: req.body.id,
+        error: {
+          code: -32000,
+          message:
+            "Missing mcp-session-id header. Please initialize session first.",
+        },
+      });
+      return;
+    }
+    res.setHeader("mcp-session-id", sessionId);
+    res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+    res.setHeader("Content-Type", "application/json");
+
+    // Log request method
+    console.log(`Handling method: ${req.body.method}`);
+
+    // Handle shutdown
+    if (req.body?.method === "shutdown") {
+      console.log("MCP session shutdown via POST");
+      console.log(`Closing session: ${sessionId}`);
+      res.json({
+        jsonrpc: "2.0",
+        id: req.body.id,
+        result: {},
+      });
+      return;
+    }
+
+    try {
+      if (typeof sessionId !== "string") {
+        throw new Error("Invalid session ID.");
       }
 
-      // Require session ID for all other requests
-      const sessionId = req.headers['mcp-session-id'];
-      if (!sessionId) {
-        res.status(400).json({
-          jsonrpc: '2.0',
-          id: req.body.id,
-          error: {
-            code: -32000,
-            message: 'Missing mcp-session-id header. Please initialize session first.'
-          }
-        });
-        return;
+      // Route tool and other requests to SDK server
+      if (req.body.method === "tools/call") {
+        const result = await server.request(req.body, CallToolRequestSchema);
+        res.json(result);
       }
-      res.setHeader('mcp-session-id', sessionId);
-      res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
-      res.setHeader('Content-Type', 'application/json');
-
-      // Log request method
-      console.log(`Handling method: ${req.body.method}`);
-
-      // Handle shutdown
-      if (req.body?.method === 'shutdown') {
-        console.log('MCP session shutdown via POST');
-        console.log(`Closing session: ${sessionId}`);
-        res.json({
-          jsonrpc: '2.0',
-          id: req.body.id,
-          result: {}
-        });
-        return;
+      // Handle tool listing
+      else if (req.body.method === "tools/list") {
+        const result = await server.request(req.body, ListToolsRequestSchema);
+        res.json(result);
+      } else {
+        // Default response for unknown methods
+        throw new McpError(
+          ErrorCode.MethodNotFound,
+          `Unknown method: ${req.body.method}`
+        );
       }
+    } catch (error) {
+      console.error("Error handling request:", error);
+      res.status(500).json({
+        jsonrpc: "2.0",
+        id: req.body.id,
+        error: {
+          code: error instanceof McpError ? error.code : -32001,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  });
 
-      // Handle tool requests and others
-      try {
-        // ...existing code for tool handling...
-        // For demonstration, echo back the request
-        const response = {
-          jsonrpc: '2.0',
-          id: req.body.id,
-          result: {
-            echo: req.body
-          }
-        };
-        console.log('Sending response:', JSON.stringify(response, null, 2));
-        res.json(response);
-      } catch (error) {
-        console.error('Error handling request:', error);
-        res.status(500).json({
-          jsonrpc: '2.0',
-          id: req.body.id,
-          error: {
-            code: -32001,
-            message: error instanceof Error ? error.message : String(error)
-          }
-        });
-      }
-    });
-  
   // Keep the old SSE endpoint for backward compatibility
-  app.route('/sse')
+  app
+    .route("/sse")
     .get(async (req, res) => {
-      console.log('Legacy SSE connection established via GET');
-      console.log('Headers:', req.headers);
-      console.log('Query params:', req.query);
-      
+      console.log("Legacy SSE connection established via GET");
+      console.log("Headers:", req.headers);
+      console.log("Query params:", req.query);
+
       try {
-        const transport = new SSEServerTransport('/sse', res);
-        console.log('Created SSE transport, connecting to server...');
+        const transport = new SSEServerTransport("/sse", res);
+        console.log("Created SSE transport, connecting to server...");
         await server.connect(transport);
-        console.log('Server connected to transport');
+        console.log("Server connected to transport");
       } catch (error) {
-        console.error('Error connecting to SSE transport:', error);
+        console.error("Error connecting to SSE transport:", error);
         if (!res.headersSent) {
-          res.status(500).send('Error connecting to SSE transport');
+          res.status(500).send("Error connecting to SSE transport");
         }
       }
     })
     .post(async (req, res) => {
-      console.log('Legacy SSE connection established via POST');
-      console.log('Headers:', req.headers);
-      console.log('Body:', req.body);
-      
+      console.log("Legacy SSE connection established via POST");
+      console.log("Headers:", req.headers);
+      console.log("Body:", req.body);
+
       try {
-        const transport = new SSEServerTransport('/sse', res);
-        console.log('Created SSE transport, connecting to server...');
+        const transport = new SSEServerTransport("/sse", res);
+        console.log("Created SSE transport, connecting to server...");
         await server.connect(transport);
-        console.log('Server connected to transport');
+        console.log("Server connected to transport");
       } catch (error) {
-        console.error('Error connecting to SSE transport:', error);
+        console.error("Error connecting to SSE transport:", error);
         if (!res.headersSent) {
-          res.status(500).send('Error connecting to SSE transport');
+          res.status(500).send("Error connecting to SSE transport");
         }
       }
     });
 
   app.listen(port, () => {
-    console.log(`Databricks MCP server running on HTTP with SSE at http://localhost:${port}`);
-    console.log(`Connect to: http://localhost:${port}/mcp (recommended) or http://localhost:${port}/sse (legacy)`);
+    console.log(
+      `Databricks MCP server running on HTTP with SSE at http://localhost:${port}`
+    );
+    console.log(
+      `Connect to: http://localhost:${port}/mcp (recommended) or http://localhost:${port}/sse (legacy)`
+    );
   });
 }
 
