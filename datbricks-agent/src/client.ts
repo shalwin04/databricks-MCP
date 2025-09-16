@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-// import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { HttpClientTransport } from "./httpClientTransport.js";
 import {
   CallToolRequest,
   CallToolResult,
@@ -18,7 +16,10 @@ import { z } from "zod";
  */
 export class DatabricksMCPClient {
   private client: Client;
-  private transport: StdioClientTransport | HttpClientTransport | null = null;
+  private transport:
+    | StdioClientTransport
+    | StreamableHTTPClientTransport
+    | null = null;
   private connected = false;
 
   constructor(private serverUrl?: string) {
@@ -43,7 +44,12 @@ export class DatabricksMCPClient {
       if (this.serverUrl) {
         // HTTP transport for remote server
         console.log(`Connecting to MCP server at ${this.serverUrl}...`);
-        this.transport = new HttpClientTransport(this.serverUrl);
+        this.transport = new StreamableHTTPClientTransport(
+          new URL(this.serverUrl),
+          {
+            sessionId: `session-${Math.random().toString(36).substring(2, 15)}`,
+          }
+        );
       } else {
         // Stdio transport for local server
         console.log("Connecting to local MCP server via stdio...");
@@ -53,7 +59,7 @@ export class DatabricksMCPClient {
         });
       }
 
-      await this.client.connect(this.transport);
+      await this.client.connect(this.transport as any);
       this.connected = true;
       console.log("✅ Connected to MCP server");
     } catch (error: unknown) {

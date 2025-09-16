@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import {
   CallToolRequestSchema,
@@ -924,6 +925,10 @@ async function main() {
     console.log("Headers:", req.headers);
     console.log("Body:", req.body);
 
+    // Set headers
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Transfer-Encoding", "chunked");
+
     // Initialization request: create session
     if (req.body?.method === "initialize") {
       const sessionId = `session-${Math.random()
@@ -933,7 +938,7 @@ async function main() {
       console.log(`Created new session ID: ${sessionId}`);
       res.setHeader("mcp-session-id", sessionId);
       res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
-      res.setHeader("Content-Type", "application/json");
+
       const response = {
         jsonrpc: "2.0",
         id: req.body.id,
@@ -952,7 +957,8 @@ async function main() {
         "Sending initialization response:",
         JSON.stringify(response, null, 2)
       );
-      res.json(response);
+      res.write(JSON.stringify(response));
+      res.end();
       return;
     }
 
@@ -960,8 +966,9 @@ async function main() {
     const sessionId = Array.isArray(req.headers["mcp-session-id"])
       ? req.headers["mcp-session-id"][0]
       : req.headers["mcp-session-id"];
+
     if (!sessionId) {
-      res.status(400).json({
+      const errorResponse = {
         jsonrpc: "2.0",
         id: req.body.id,
         error: {
@@ -969,25 +976,26 @@ async function main() {
           message:
             "Missing mcp-session-id header. Please initialize session first.",
         },
-      });
+      };
+      res.write(JSON.stringify(errorResponse));
+      res.end();
       return;
     }
-    res.setHeader("mcp-session-id", sessionId);
-    res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
-    res.setHeader("Content-Type", "application/json");
 
-    // Log request method
+    res.setHeader("mcp-session-id", sessionId);
     console.log(`Handling method: ${req.body.method}`);
 
     // Handle shutdown
     if (req.body?.method === "shutdown") {
       console.log("MCP session shutdown via POST");
       console.log(`Closing session: ${sessionId}`);
-      res.json({
+      const response = {
         jsonrpc: "2.0",
         id: req.body.id,
         result: {},
-      });
+      };
+      res.write(JSON.stringify(response));
+      res.end();
       return;
     }
 
@@ -996,15 +1004,49 @@ async function main() {
         throw new Error("Invalid session ID.");
       }
 
-      // Route tool and other requests to SDK server
+      // Handle tool calls with timeout
       if (req.body.method === "tools/call") {
-        const result = await server.request(req.body, CallToolRequestSchema);
-        res.json(result);
+        const timeoutMs = 30000; // 30 second timeout
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new McpError(ErrorCode.RequestTimeout, "Request timed out"));
+          }, timeoutMs);
+        });
+
+        try {
+          // Race between the tool call and timeout
+          const result = await Promise.race([
+            server.request(req.body, CallToolRequestSchema),
+            timeoutPromise,
+          ]);
+
+          res.write(JSON.stringify(result));
+          res.end();
+        } catch (toolError) {
+          if (
+            toolError instanceof McpError &&
+            toolError.code === ErrorCode.RequestTimeout
+          ) {
+            const errorResponse = {
+              jsonrpc: "2.0",
+              id: req.body.id,
+              error: {
+                code: ErrorCode.RequestTimeout,
+                message: "Request timed out",
+              },
+            };
+            res.write(JSON.stringify(errorResponse));
+          } else {
+            throw toolError;
+          }
+          res.end();
+        }
       }
       // Handle tool listing
       else if (req.body.method === "tools/list") {
         const result = await server.request(req.body, ListToolsRequestSchema);
-        res.json(result);
+        res.write(JSON.stringify(result));
+        res.end();
       } else {
         // Default response for unknown methods
         throw new McpError(
@@ -1014,14 +1056,16 @@ async function main() {
       }
     } catch (error) {
       console.error("Error handling request:", error);
-      res.status(500).json({
+      const errorResponse = {
         jsonrpc: "2.0",
         id: req.body.id,
         error: {
           code: error instanceof McpError ? error.code : -32001,
           message: error instanceof Error ? error.message : String(error),
         },
-      });
+      };
+      res.write(JSON.stringify(errorResponse));
+      res.end();
     }
   });
 
