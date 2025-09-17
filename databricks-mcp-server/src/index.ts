@@ -205,6 +205,189 @@ class DatabricksClient {
       `/unity-catalog/models/${encodeURIComponent(fullName)}`
     );
   }
+
+  // Jobs API methods
+  async listJobs(): Promise<any> {
+    return this.makeRequest("/jobs/list");
+  }
+
+  async deleteJob(jobId: number): Promise<any> {
+    return this.makeRequest("/jobs/delete", "POST", { job_id: jobId });
+  }
+
+  async resetJob(jobId: number, newSettings: any): Promise<any> {
+    return this.makeRequest("/jobs/reset", "POST", {
+      job_id: jobId,
+      new_settings: newSettings,
+    });
+  }
+
+  async cancelRun(runId: number): Promise<any> {
+    return this.makeRequest("/jobs/runs/cancel", "POST", { run_id: runId });
+  }
+
+  // MLflow Experiments API methods
+  async listExperiments(): Promise<any> {
+    return this.makeRequest("/mlflow/experiments/list");
+  }
+
+  async deleteExperiment(experimentId: string): Promise<any> {
+    return this.makeRequest("/mlflow/experiments/delete", "POST", {
+      experiment_id: experimentId,
+    });
+  }
+
+  async restoreExperiment(experimentId: string): Promise<any> {
+    return this.makeRequest("/mlflow/experiments/restore", "POST", {
+      experiment_id: experimentId,
+    });
+  }
+
+  async updateExperiment(experimentId: string, name: string): Promise<any> {
+    return this.makeRequest("/mlflow/experiments/update", "POST", {
+      experiment_id: experimentId,
+      new_name: name,
+    });
+  }
+
+  // MLflow Runs API methods
+  async createRun(
+    experimentId: string,
+    tags?: Record<string, string>
+  ): Promise<any> {
+    return this.makeRequest("/mlflow/runs/create", "POST", {
+      experiment_id: experimentId,
+      tags: tags
+        ? Object.entries(tags).map(([key, value]) => ({ key, value }))
+        : [],
+    });
+  }
+
+  async deleteRun(runId: string): Promise<any> {
+    return this.makeRequest("/mlflow/runs/delete", "POST", { run_id: runId });
+  }
+
+  async restoreRun(runId: string): Promise<any> {
+    return this.makeRequest("/mlflow/runs/restore", "POST", { run_id: runId });
+  }
+
+  async getMLRun(runId: string): Promise<any> {
+    return this.makeRequest(`/mlflow/runs/get?run_id=${runId}`);
+  }
+
+  // Workspace API methods
+  async listWorkspaceObjects(path: string = "/"): Promise<any> {
+    return this.makeRequest(`/workspace/list?path=${encodeURIComponent(path)}`);
+  }
+
+  async getWorkspaceStatus(path: string): Promise<any> {
+    return this.makeRequest(
+      `/workspace/get-status?path=${encodeURIComponent(path)}`
+    );
+  }
+
+  async exportWorkspaceObject(
+    path: string,
+    format: string = "SOURCE"
+  ): Promise<any> {
+    return this.makeRequest(
+      `/workspace/export?path=${encodeURIComponent(path)}&format=${format}`
+    );
+  }
+
+  // Unity Catalog methods
+  async listCatalogs(): Promise<any> {
+    return this.makeRequest("/unity-catalog/catalogs");
+  }
+
+  async listSchemas(catalogName: string): Promise<any> {
+    return this.makeRequest(
+      `/unity-catalog/schemas?catalog_name=${encodeURIComponent(catalogName)}`
+    );
+  }
+
+  async listTables(catalogName: string, schemaName: string): Promise<any> {
+    return this.makeRequest(
+      `/unity-catalog/tables?catalog_name=${encodeURIComponent(
+        catalogName
+      )}&schema_name=${encodeURIComponent(schemaName)}`
+    );
+  }
+
+  async listModels(): Promise<any> {
+    return this.makeRequest("/unity-catalog/models");
+  }
+
+  async getModelVersions(fullName: string): Promise<any> {
+    return this.makeRequest(
+      `/unity-catalog/models/${encodeURIComponent(fullName)}/versions`
+    );
+  }
+
+  // Repos API methods
+  async listRepos(): Promise<any> {
+    return this.makeRequest("/repos");
+  }
+
+  async getRepo(repoId: number): Promise<any> {
+    return this.makeRequest(`/repos/${repoId}`);
+  }
+
+  async createRepo(url: string, provider: string, path?: string): Promise<any> {
+    return this.makeRequest("/repos", "POST", { url, provider, path });
+  }
+
+  async updateRepo(
+    repoId: number,
+    branch?: string,
+    tag?: string
+  ): Promise<any> {
+    return this.makeRequest(`/repos/${repoId}`, "PATCH", { branch, tag });
+  }
+
+  async deleteRepo(repoId: number): Promise<any> {
+    return this.makeRequest(`/repos/${repoId}`, "DELETE");
+  }
+
+  // Libraries API methods
+  async listLibraries(clusterId: string): Promise<any> {
+    return this.makeRequest(
+      `/libraries/cluster-status?cluster_id=${clusterId}`
+    );
+  }
+
+  async installLibraries(clusterId: string, libraries: any[]): Promise<any> {
+    return this.makeRequest("/libraries/install", "POST", {
+      cluster_id: clusterId,
+      libraries,
+    });
+  }
+
+  async uninstallLibraries(clusterId: string, libraries: any[]): Promise<any> {
+    return this.makeRequest("/libraries/uninstall", "POST", {
+      cluster_id: clusterId,
+      libraries,
+    });
+  }
+
+  // DBFS (Databricks File System) methods
+  async listDbfsFiles(path: string = "/"): Promise<any> {
+    return this.makeRequest(`/dbfs/list?path=${encodeURIComponent(path)}`);
+  }
+
+  async getDbfsFileInfo(path: string): Promise<any> {
+    return this.makeRequest(
+      `/dbfs/get-status?path=${encodeURIComponent(path)}`
+    );
+  }
+
+  async deleteDbfsFile(path: string, recursive: boolean = false): Promise<any> {
+    return this.makeRequest("/dbfs/delete", "POST", { path, recursive });
+  }
+
+  async createDbfsDirectory(path: string): Promise<any> {
+    return this.makeRequest("/dbfs/mkdirs", "POST", { path });
+  }
 }
 
 class DatabricksNotebookRunner {
@@ -851,6 +1034,431 @@ function createMcpServer(): McpServer {
           {
             type: "text",
             text: JSON.stringify(clusters, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 13. List Jobs
+  server.registerTool(
+    "list_jobs",
+    {
+      title: "List Databricks Jobs",
+      description: "Lists all Databricks jobs in the workspace",
+      inputSchema: {},
+    },
+    async () => {
+      const client = new DatabricksClient();
+      const jobs = await client.listJobs();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(jobs, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 14. Delete Job
+  server.registerTool(
+    "delete_job",
+    {
+      title: "Delete Databricks Job",
+      description: "Deletes a specific Databricks job",
+      inputSchema: {
+        job_id: z.string().describe("Job ID to delete"),
+      },
+    },
+    async ({ job_id }) => {
+      const client = new DatabricksClient();
+      await client.deleteJob(parseInt(job_id));
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Job ${job_id} has been deleted successfully.`,
+          },
+        ],
+      };
+    }
+  );
+
+  // 15. Cancel Job Run
+  server.registerTool(
+    "cancel_job_run",
+    {
+      title: "Cancel Job Run",
+      description: "Cancels a running Databricks job",
+      inputSchema: {
+        run_id: z.string().describe("Run ID to cancel"),
+      },
+    },
+    async ({ run_id }) => {
+      const client = new DatabricksClient();
+      await client.cancelRun(parseInt(run_id));
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Job run ${run_id} has been cancelled.`,
+          },
+        ],
+      };
+    }
+  );
+
+  // 16. List Experiments
+  server.registerTool(
+    "list_experiments",
+    {
+      title: "List MLflow Experiments",
+      description: "Lists all MLflow experiments in the workspace",
+      inputSchema: {},
+    },
+    async () => {
+      const client = new DatabricksClient();
+      const experiments = await client.listExperiments();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(experiments, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 17. Create Experiment
+  server.registerTool(
+    "create_experiment",
+    {
+      title: "Create MLflow Experiment",
+      description: "Creates a new MLflow experiment",
+      inputSchema: {
+        name: z.string().describe("Experiment name"),
+      },
+    },
+    async ({ name }) => {
+      const client = new DatabricksClient();
+      const result = await client.createExperiment(name);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 18. Delete Experiment
+  server.registerTool(
+    "delete_experiment",
+    {
+      title: "Delete MLflow Experiment",
+      description: "Deletes an MLflow experiment",
+      inputSchema: {
+        experiment_id: z.string().describe("Experiment ID to delete"),
+      },
+    },
+    async ({ experiment_id }) => {
+      const client = new DatabricksClient();
+      await client.deleteExperiment(experiment_id);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Experiment ${experiment_id} has been deleted.`,
+          },
+        ],
+      };
+    }
+  );
+
+  // 19. List Workspace Objects
+  server.registerTool(
+    "list_workspace_objects",
+    {
+      title: "List Workspace Objects",
+      description: "Lists objects in a workspace path",
+      inputSchema: {
+        path: z.string().optional().default("/").describe("Workspace path"),
+      },
+    },
+    async ({ path = "/" }) => {
+      const client = new DatabricksClient();
+      const objects = await client.listWorkspaceObjects(path);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(objects, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 20. Get Workspace Object Status
+  server.registerTool(
+    "get_workspace_status",
+    {
+      title: "Get Workspace Object Status",
+      description: "Gets status information for a workspace object",
+      inputSchema: {
+        path: z.string().describe("Workspace object path"),
+      },
+    },
+    async ({ path }) => {
+      const client = new DatabricksClient();
+      const status = await client.getWorkspaceStatus(path);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(status, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 21. List Unity Catalog Catalogs
+  server.registerTool(
+    "list_catalogs",
+    {
+      title: "List Unity Catalog Catalogs",
+      description: "Lists all Unity Catalog catalogs",
+      inputSchema: {},
+    },
+    async () => {
+      const client = new DatabricksClient();
+      const catalogs = await client.listCatalogs();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(catalogs, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 22. List Unity Catalog Schemas
+  server.registerTool(
+    "list_schemas",
+    {
+      title: "List Unity Catalog Schemas",
+      description: "Lists schemas in a Unity Catalog catalog",
+      inputSchema: {
+        catalog_name: z.string().describe("Catalog name"),
+      },
+    },
+    async ({ catalog_name }) => {
+      const client = new DatabricksClient();
+      const schemas = await client.listSchemas(catalog_name);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(schemas, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 23. List Unity Catalog Tables
+  server.registerTool(
+    "list_tables",
+    {
+      title: "List Unity Catalog Tables",
+      description: "Lists tables in a Unity Catalog schema",
+      inputSchema: {
+        catalog_name: z.string().describe("Catalog name"),
+        schema_name: z.string().describe("Schema name"),
+      },
+    },
+    async ({ catalog_name, schema_name }) => {
+      const client = new DatabricksClient();
+      const tables = await client.listTables(catalog_name, schema_name);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(tables, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 24. List All Unity Catalog Models
+  server.registerTool(
+    "list_all_models",
+    {
+      title: "List All Unity Catalog Models",
+      description: "Lists all registered models in Unity Catalog",
+      inputSchema: {},
+    },
+    async () => {
+      const client = new DatabricksClient();
+      const models = await client.listModels();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(models, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 25. Get Model Versions
+  server.registerTool(
+    "get_model_versions",
+    {
+      title: "Get Model Versions",
+      description: "Gets all versions of a registered model",
+      inputSchema: {
+        full_name: z
+          .string()
+          .describe("Full model name (catalog.schema.model)"),
+      },
+    },
+    async ({ full_name }) => {
+      const client = new DatabricksClient();
+      const versions = await client.getModelVersions(full_name);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(versions, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 26. List Repositories
+  server.registerTool(
+    "list_repos",
+    {
+      title: "List Git Repositories",
+      description: "Lists all Git repositories in the workspace",
+      inputSchema: {},
+    },
+    async () => {
+      const client = new DatabricksClient();
+      const repos = await client.listRepos();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(repos, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 27. Get Repository Details
+  server.registerTool(
+    "get_repo_details",
+    {
+      title: "Get Repository Details",
+      description: "Gets details for a specific Git repository",
+      inputSchema: {
+        repo_id: z.string().describe("Repository ID"),
+      },
+    },
+    async ({ repo_id }) => {
+      const client = new DatabricksClient();
+      const repo = await client.getRepo(parseInt(repo_id));
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(repo, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 28. List DBFS Files
+  server.registerTool(
+    "list_dbfs_files",
+    {
+      title: "List DBFS Files",
+      description: "Lists files in Databricks File System",
+      inputSchema: {
+        path: z.string().optional().default("/").describe("DBFS path"),
+      },
+    },
+    async ({ path = "/" }) => {
+      const client = new DatabricksClient();
+      const files = await client.listDbfsFiles(path);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(files, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 29. Get DBFS File Info
+  server.registerTool(
+    "get_dbfs_file_info",
+    {
+      title: "Get DBFS File Info",
+      description: "Gets information about a DBFS file",
+      inputSchema: {
+        path: z.string().describe("DBFS file path"),
+      },
+    },
+    async ({ path }) => {
+      const client = new DatabricksClient();
+      const info = await client.getDbfsFileInfo(path);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(info, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // 30. List Cluster Libraries
+  server.registerTool(
+    "list_cluster_libraries",
+    {
+      title: "List Cluster Libraries",
+      description: "Lists libraries installed on a cluster",
+      inputSchema: {
+        cluster_id: z.string().describe("Cluster ID"),
+      },
+    },
+    async ({ cluster_id }) => {
+      const client = new DatabricksClient();
+      const libraries = await client.listLibraries(cluster_id);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(libraries, null, 2),
           },
         ],
       };

@@ -131,14 +131,10 @@ export class DatabricksMCPClient {
   }
 
   /**
-   * Convenience methods for each Databricks tool
+   * Convenience methods for Databricks tools
    */
 
-  // NEW METHOD: List all Databricks clusters
-  async listClusters(): Promise<CallToolResult> {
-    return this.callTool("list_clusters");
-  }
-
+  // Core Databricks Operations
   async runNotebook(
     notebookPath: string,
     baseParams: Record<string, unknown> = {},
@@ -163,27 +159,25 @@ export class DatabricksMCPClient {
     });
   }
 
-  async getLatestExperimentRun(experimentId: string): Promise<CallToolResult> {
-    return this.callTool("get_latest_experiment_run", {
-      experiment_id: experimentId,
+  // Cluster Operations
+  async listClusters(): Promise<CallToolResult> {
+    return this.callTool("list_clusters");
+  }
+
+  // Job Operations
+  async listJobs(): Promise<CallToolResult> {
+    return this.callTool("list_jobs");
+  }
+
+  async getJobDetails(jobId: string): Promise<CallToolResult> {
+    return this.callTool("get_job_details", {
+      job_id: jobId,
     });
   }
 
-  async getModelMetadata(experimentId: string): Promise<CallToolResult> {
-    return this.callTool("get_model_metadata", {
-      experiment_id: experimentId,
-    });
-  }
-
-  async getRegisteredModelInfo(
-    modelName: string,
-    ucCatalog: string,
-    ucSchema: string
-  ): Promise<CallToolResult> {
-    return this.callTool("get_registered_model_info", {
-      model_name: modelName,
-      uc_catalog: ucCatalog,
-      uc_schema: ucSchema,
+  async deleteJob(jobId: string): Promise<CallToolResult> {
+    return this.callTool("delete_job", {
+      job_id: jobId,
     });
   }
 
@@ -198,12 +192,129 @@ export class DatabricksMCPClient {
     return this.callTool("get_latest_running_job_runs");
   }
 
-  async getJobDetails(jobId: string): Promise<CallToolResult> {
-    return this.callTool("get_job_details", {
-      job_id: jobId,
+  async cancelJobRun(runId: string): Promise<CallToolResult> {
+    return this.callTool("cancel_job_run", {
+      run_id: runId,
     });
   }
 
+  // MLflow Experiment Operations
+  async listExperiments(): Promise<CallToolResult> {
+    return this.callTool("list_experiments");
+  }
+
+  async createExperiment(name: string): Promise<CallToolResult> {
+    return this.callTool("create_experiment", {
+      name: name,
+    });
+  }
+
+  async deleteExperiment(experimentId: string): Promise<CallToolResult> {
+    return this.callTool("delete_experiment", {
+      experiment_id: experimentId,
+    });
+  }
+
+  async getLatestExperimentRun(experimentId: string): Promise<CallToolResult> {
+    return this.callTool("get_latest_experiment_run", {
+      experiment_id: experimentId,
+    });
+  }
+
+  async getModelMetadata(experimentId: string): Promise<CallToolResult> {
+    return this.callTool("get_model_metadata", {
+      experiment_id: experimentId,
+    });
+  }
+
+  // Unity Catalog Operations
+  async listCatalogs(): Promise<CallToolResult> {
+    return this.callTool("list_catalogs");
+  }
+
+  async listSchemas(catalogName: string): Promise<CallToolResult> {
+    return this.callTool("list_schemas", {
+      catalog_name: catalogName,
+    });
+  }
+
+  async listTables(
+    catalogName: string,
+    schemaName: string
+  ): Promise<CallToolResult> {
+    return this.callTool("list_tables", {
+      catalog_name: catalogName,
+      schema_name: schemaName,
+    });
+  }
+
+  async listAllModels(): Promise<CallToolResult> {
+    return this.callTool("list_all_models");
+  }
+
+  async getRegisteredModelInfo(
+    modelName: string,
+    ucCatalog: string,
+    ucSchema: string
+  ): Promise<CallToolResult> {
+    return this.callTool("get_registered_model_info", {
+      model_name: modelName,
+      uc_catalog: ucCatalog,
+      uc_schema: ucSchema,
+    });
+  }
+
+  async getModelVersions(fullName: string): Promise<CallToolResult> {
+    return this.callTool("get_model_versions", {
+      full_name: fullName,
+    });
+  }
+
+  // Workspace Operations
+  async listWorkspaceObjects(path: string = "/"): Promise<CallToolResult> {
+    return this.callTool("list_workspace_objects", {
+      path: path,
+    });
+  }
+
+  async getWorkspaceStatus(path: string): Promise<CallToolResult> {
+    return this.callTool("get_workspace_status", {
+      path: path,
+    });
+  }
+
+  // Repository Operations
+  async listRepos(): Promise<CallToolResult> {
+    return this.callTool("list_repos");
+  }
+
+  async getRepoDetails(repoId: string): Promise<CallToolResult> {
+    return this.callTool("get_repo_details", {
+      repo_id: repoId,
+    });
+  }
+
+  // DBFS Operations
+  async listDbfsFiles(path: string = "/"): Promise<CallToolResult> {
+    return this.callTool("list_dbfs_files", {
+      path: path,
+    });
+  }
+
+  async getDbfsFileInfo(path: string): Promise<CallToolResult> {
+    return this.callTool("get_dbfs_file_info", {
+      path: path,
+    });
+  }
+
+  // Library Operations
+  async listClusterLibraries(clusterId: string): Promise<CallToolResult> {
+    return this.callTool("list_cluster_libraries", {
+      cluster_id: clusterId,
+    });
+  }
+
+  // Utility Operations
   async convertEpochToDatetime(
     epochTimestamp: string
   ): Promise<CallToolResult> {
@@ -220,6 +331,7 @@ export class DatabricksMCPClient {
     });
   }
 
+  // Azure DevOps Integration
   async triggerAzureDevOpsPipeline(
     modelType: string,
     branch: string = "dev",
@@ -386,6 +498,21 @@ class DatabricksMCPCLI {
       case "clusters":
         await this.showClusters();
         break;
+      case "jobs":
+        await this.showJobs();
+        break;
+      case "experiments":
+        await this.showExperiments();
+        break;
+      case "catalogs":
+        await this.showCatalogs();
+        break;
+      case "repos":
+        await this.showRepos();
+        break;
+      case "models":
+        await this.showModels();
+        break;
       case "quick-train":
         await this.quickTrain();
         break;
@@ -472,30 +599,70 @@ class DatabricksMCPCLI {
     console.log(""); // Add spacing
   }
 
-  // NEW METHOD: Show clusters quickly
+  // Quick access methods for common operations
   private async showClusters(): Promise<void> {
     console.log("🔍 Getting Databricks clusters...");
     try {
       const result = await this.client.listClusters();
       console.log("✅ Clusters:");
-      if (result.content && result.content[0] && "text" in result.content[0]) {
-        try {
-          const text =
-            typeof result.content[0].text === "string"
-              ? result.content[0].text
-              : String(result.content[0].text);
-          const parsed = JSON.parse(text);
-          console.log(JSON.stringify(parsed, null, 2));
-        } catch {
-          console.log(result.content[0].text);
-        }
-      }
+      this.printResult(result);
     } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error("❌ Failed to get clusters:", error.message);
-      } else {
-        console.error("❌ Failed to get clusters:", error);
-      }
+      this.printError("Failed to get clusters", error);
+    }
+  }
+
+  private async showJobs(): Promise<void> {
+    console.log("🔍 Getting Databricks jobs...");
+    try {
+      const result = await this.client.listJobs();
+      console.log("✅ Jobs:");
+      this.printResult(result);
+    } catch (error: unknown) {
+      this.printError("Failed to get jobs", error);
+    }
+  }
+
+  private async showExperiments(): Promise<void> {
+    console.log("🔍 Getting MLflow experiments...");
+    try {
+      const result = await this.client.listExperiments();
+      console.log("✅ Experiments:");
+      this.printResult(result);
+    } catch (error: unknown) {
+      this.printError("Failed to get experiments", error);
+    }
+  }
+
+  private async showCatalogs(): Promise<void> {
+    console.log("🔍 Getting Unity Catalog catalogs...");
+    try {
+      const result = await this.client.listCatalogs();
+      console.log("✅ Catalogs:");
+      this.printResult(result);
+    } catch (error: unknown) {
+      this.printError("Failed to get catalogs", error);
+    }
+  }
+
+  private async showRepos(): Promise<void> {
+    console.log("🔍 Getting Git repositories...");
+    try {
+      const result = await this.client.listRepos();
+      console.log("✅ Repositories:");
+      this.printResult(result);
+    } catch (error: unknown) {
+      this.printError("Failed to get repositories", error);
+    }
+  }
+
+  private async showModels(): Promise<void> {
+    console.log("🔍 Getting registered models...");
+    try {
+      const result = await this.client.listAllModels();
+      console.log("✅ Models:");
+      this.printResult(result);
+    } catch (error: unknown) {
+      this.printError("Failed to get models", error);
     }
   }
 
@@ -504,15 +671,9 @@ class DatabricksMCPCLI {
     try {
       const result = await this.client.trainAndRegisterModel("shingrix-po");
       console.log("✅ Training started:");
-      if (result.content && result.content[0] && "text" in result.content[0]) {
-        console.log(result.content[0].text);
-      }
+      this.printResult(result);
     } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error("❌ Training failed:", error.message);
-      } else {
-        console.error("❌ Training failed:", error);
-      }
+      this.printError("Training failed", error);
     }
   }
 
@@ -524,19 +685,9 @@ class DatabricksMCPCLI {
       try {
         const result = await this.client.checkJobStatus(jobId, runId);
         console.log("✅ Status:");
-        if (
-          result.content &&
-          result.content[0] &&
-          "text" in result.content[0]
-        ) {
-          console.log(result.content[0].text);
-        }
+        this.printResult(result);
       } catch (error: unknown) {
-        if (error instanceof Error) {
-          console.error("❌ Status check failed:", error.message);
-        } else {
-          console.error("❌ Status check failed:", error);
-        }
+        this.printError("Status check failed", error);
       }
     }
   }
@@ -546,39 +697,55 @@ class DatabricksMCPCLI {
     try {
       const result = await this.client.getRunningJobRuns();
       console.log("✅ Running jobs:");
-      if (result.content && result.content[0] && "text" in result.content[0]) {
-        try {
-          const text =
-            typeof result.content[0].text === "string"
-              ? result.content[0].text
-              : String(result.content[0].text);
-          const parsed = JSON.parse(text);
-          console.log(JSON.stringify(parsed, null, 2));
-        } catch {
-          console.log(result.content[0].text);
-        }
-      }
+      this.printResult(result);
     } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error("❌ Failed to get running jobs:", error.message);
-      } else {
-        console.error("❌ Failed to get running jobs:", error);
+      this.printError("Failed to get running jobs", error);
+    }
+  }
+
+  // Helper methods
+  private printResult(result: CallToolResult): void {
+    if (result.content && result.content[0] && "text" in result.content[0]) {
+      try {
+        const text =
+          typeof result.content[0].text === "string"
+            ? result.content[0].text
+            : String(result.content[0].text);
+        const parsed = JSON.parse(text);
+        console.log(JSON.stringify(parsed, null, 2));
+      } catch {
+        console.log(result.content[0].text);
       }
+    }
+  }
+
+  private printError(message: string, error: unknown): void {
+    if (error instanceof Error) {
+      console.error(`❌ ${message}:`, error.message);
+    } else {
+      console.error(`❌ ${message}:`, error);
     }
   }
 
   private showHelp(): void {
     console.log(`
 📖 Commands:
-  help           - Show this help
-  tools, list    - Show available tools
-  <number>       - Execute tool by number (e.g., "1")
-  <tool-name>    - Execute tool by name
-  clusters       - Show all Databricks clusters
-  quick-train    - Quick train shingrix-po model
-  status         - Check job status (prompts for IDs)
-  running        - Show running jobs
-  quit, exit     - Exit the CLI
+  help               - Show this help
+  tools, list        - Show available tools
+  <number>           - Execute tool by number (e.g., "1")
+  <tool-name>        - Execute tool by name
+  
+  Quick Commands:
+  clusters           - Show all Databricks clusters
+  jobs               - Show all Databricks jobs
+  experiments        - Show all MLflow experiments
+  catalogs           - Show all Unity Catalog catalogs
+  repos              - Show all Git repositories
+  models             - Show all registered models
+  quick-train        - Quick train shingrix-po model
+  status             - Check job status (prompts for IDs)
+  running            - Show running jobs
+  quit, exit         - Exit the CLI
 
 🔧 Tool execution:
   - Enter tool number (1-${this.tools.length}) or exact tool name
